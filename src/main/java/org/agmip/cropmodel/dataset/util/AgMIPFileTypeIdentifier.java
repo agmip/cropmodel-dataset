@@ -141,6 +141,7 @@ public class AgMIPFileTypeIdentifier {
     }
     
     private static CropModelFile identifyTextFile(Path file) {
+        LOG.log(Level.INFO, "Attempting to identify: {0}", file.toString());
         CropModelFile identity = null;
         try {
             try (Scanner scanner = new Scanner(file)) {
