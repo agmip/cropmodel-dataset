@@ -36,13 +36,13 @@ import java.nio.file.Path;
  */
 public class LinkageFile extends CropModelFile {
 
-    public LinkageFile(Path path) {
-        super(path);
-    }
+  public LinkageFile(Path path) {
+    super(path);
+  }
 
-    @Override
-    public CropModelFileType getFileType() {
-        return CropModelFileType.Linkage;
-    }
-    
+  @Override
+  public CropModelFileType getFileType() {
+    return CropModelFileType.LINKAGE;
+  }
+
 }

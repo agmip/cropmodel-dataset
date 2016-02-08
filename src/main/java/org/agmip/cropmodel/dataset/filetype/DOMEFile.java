@@ -35,36 +35,36 @@ import java.nio.file.Path;
  * @author Christopher Villalobos <cvillalobos@ufl.edu>
  */
 public class DOMEFile extends CropModelFile {
-    DOMEType domeType;
-    
-    public DOMEFile(Path path) {
-        super(path);
-        this.domeType = DOMEType.UNKNOWN;
-    }
-    
-    public DOMEFile(Path path, DOMEType type) {
-        super(path);
-        this.domeType = type;
-    }
+  DOMEType domeType;
 
-    @Override
-    public CropModelFileType getFileType() {
-        return CropModelFileType.DOME;
-    }
-    
-   public enum DOMEType {
-       UNKNOWN,
-       FIELD_OVERLAY,
-       SEASONAL_STRATEGY,
-       ROTATIONAL_STRATEGY,
-       BATCH
-   }
-   
-   public DOMEType getDOMEType() {
-       return this.domeType;
-   }
-   
-   public void setDOMEType(DOMEType type) {
-       this.domeType = type;
-   }
+  public DOMEFile(Path path) {
+    super(path);
+    this.domeType = DOMEType.UNKNOWN;
+  }
+
+  public DOMEFile(Path path, DOMEType type) {
+    super(path);
+    this.domeType = type;
+  }
+
+  @Override
+  public CropModelFileType getFileType() {
+    return CropModelFileType.DOME;
+  }
+
+  public enum DOMEType {
+    UNKNOWN,
+    FIELD_OVERLAY,
+    SEASONAL_STRATEGY,
+    ROTATIONAL_STRATEGY,
+    BATCH
+  }
+
+  public DOMEType getDOMEType() {
+    return this.domeType;
+  }
+
+  public void setDOMEType(DOMEType type) {
+    this.domeType = type;
+  }
 }

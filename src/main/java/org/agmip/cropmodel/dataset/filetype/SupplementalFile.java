@@ -36,13 +36,13 @@ import java.nio.file.Path;
  */
 public class SupplementalFile extends CropModelFile {
 
-    public SupplementalFile(Path path) {
-        super(path);
-    }
+  public SupplementalFile(Path path) {
+    super(path);
+  }
 
-    @Override
-    public CropModelFileType getFileType() {
-        return CropModelFileType.Supplemental;
-    }
-    
+  @Override
+  public CropModelFileType getFileType() {
+    return CropModelFileType.SUPPLEMENTAL;
+  }
+
 }

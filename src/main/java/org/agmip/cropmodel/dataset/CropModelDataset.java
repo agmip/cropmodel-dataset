@@ -78,10 +78,8 @@ public class CropModelDataset {
   }
 
   public void addFile(Path file) {
-    LOG.log(Level.INFO, "Adding file: {0}", file.getFileName().toString());
     CropModelFile f = AgMIPFileTypeIdentifier.identify(file);
     if (f != null) {
-      LOG.log(Level.INFO, "File type found: {0}", f.getFileType());
       switch (f.getFileType()) {
         case ACE:
           aceFiles.add((ACEFile) f);
@@ -92,10 +90,10 @@ public class CropModelDataset {
         case ACMO:
           acmoFiles.add((ACMOFile) f);
           break;
-        case Linkage:
+        case LINKAGE:
           linkageFiles.add((LinkageFile) f);
           break;
-        case Supplemental:
+        case SUPPLEMENTAL:
         default:
           extraFiles.add((SupplementalFile) f);
           break;
@@ -236,7 +234,7 @@ public class CropModelDataset {
       out.println("Ignoring AgMIP linkage files and using ACMO files for linkage.");
       out.println("Verifying all linkages available.");
       Predicate<Boolean> allpass = e -> e == true;
-      acmoLinkageTest = acmoFiles.stream().map(path -> { 
+      acmoLinkageTest = acmoFiles.stream().map(path -> {
         return LinkChecker.checkLinkedData(path.getPath(), out, err, eids, sids, wids, exnames, soilids, wstclim);
       }).allMatch(allpass);
     }

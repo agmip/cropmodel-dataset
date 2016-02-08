@@ -36,13 +36,13 @@ import java.nio.file.Path;
  */
 public class ModelSpecificFile extends CropModelFile {
 
-    public ModelSpecificFile(Path path) {
-        super(path);
-    }
+  public ModelSpecificFile(Path path) {
+    super(path);
+  }
 
-    @Override
-    public CropModelFileType getFileType() {
-        return CropModelFileType.Cultivar;
-    }
-            
+  @Override
+  public CropModelFileType getFileType() {
+    return CropModelFileType.MODEL_SPECIFIC;
+  }
+
 }
