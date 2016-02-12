@@ -61,6 +61,7 @@ public class ACMOFileTest {
     if (headerlessAcmo.isPresent()) {
       assertNotNull(headerlessAcmo.get().getHeader());
       assertFalse(headerlessAcmo.get().getHeader().isPresent());
+      displayErrorReport(headerlessAcmo.get());
     } else {
       fail("Cannot find headerless ACMO file");
     }
@@ -79,6 +80,7 @@ public class ACMOFileTest {
   public void testHeaderlessFormatValid() {
     if (headerlessAcmo.isPresent()) {
       assertFalse("No errors found in headerless", headerlessAcmo.get().checkFormat());
+      displayErrorReport(headerlessAcmo.get());
     } else {
       fail("Cannot find headerless ACMO file");
     }
@@ -88,8 +90,14 @@ public class ACMOFileTest {
   public void testDateProblemValid() {
     if (dateproblemAcmo.isPresent()) {
       assertFalse("No errors found in dateissue", dateproblemAcmo.get().checkFormat());
+      displayErrorReport(dateproblemAcmo.get());
     } else {
       fail("Cannot find dateissues ACMO file");
     }
+  }
+
+  private void displayErrorReport(ACMOFile f) {
+    System.out.println("Error Report for " + f.getPath().toString());
+    System.out.println(f.getErrorReport());
   }
 }

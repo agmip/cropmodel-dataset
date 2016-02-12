@@ -29,6 +29,7 @@
 package org.agmip.cropmodel.dataset.filetype;
 
 import java.nio.file.Path;
+import java.util.Objects;
 
 public abstract class CropModelFile {
   protected final Path path;
@@ -60,4 +61,26 @@ public abstract class CropModelFile {
     SUPPLEMENTAL
   }
 
+  @Override
+  public int hashCode() {
+    return this.path.toString().hashCode()*31;
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj) {
+      return true;
+    }
+    if (obj == null) {
+      return false;
+    }
+    if (getClass() != obj.getClass()) {
+      return false;
+    }
+    final CropModelFile other = (CropModelFile) obj;
+    if (!Objects.equals(this.path, other.path)) {
+      return false;
+    }
+    return true;
+  }
 }

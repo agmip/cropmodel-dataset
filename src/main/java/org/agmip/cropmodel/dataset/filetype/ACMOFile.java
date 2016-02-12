@@ -30,28 +30,47 @@ package org.agmip.cropmodel.dataset.filetype;
 
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.logging.Logger;
+import java.util.logging.Level;
 
 import com.opencsv.CSVReader;
 import org.joda.time.LocalDate;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.ISODateTimeFormat;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class ACMOFile extends CropModelFile {
-  private static final Logger LOG = LoggerFactory.getLogger(ACMOFile.class);
+
+  private static final Logger LOG = Logger.getLogger(ACMOFile.class.getName());
   private static final DateTimeFormatter DATE_FORMAT = ISODateTimeFormat.date();
+  private StringBuilder errors = new StringBuilder(1024);
+  private StringBuilder warnings = new StringBuilder(1024);
   private Optional<String[]> header;
+  private Optional<String> cmSeries;
+  private Optional<String> regionId;
+  private Optional<String> climateId;
+  private Optional<String> RAPId;
+  private Optional<String> cropModel;
+  private Set<String> crops;
+  private Path filename = null;
 
   public ACMOFile(Path path) {
     super(path);
+    regionId = Optional.empty();
+    climateId = Optional.empty();
+    RAPId = Optional.empty();
+    cropModel = Optional.empty();
+    crops = new HashSet<>();
     loadHeader();
+    if (this.header.isPresent()) {
+      checkCMSeries();
+    }
   }
 
   @Override
@@ -61,70 +80,167 @@ public class ACMOFile extends CropModelFile {
 
   @Override
   public boolean isValid() {
-    if (header.isPresent()) {
+    if (header.isPresent() && cmSeries.isPresent()) {
       return checkFormat();
     } else {
       return false;
     }
   }
 
+  public String getErrorReport() {
+    return this.errors.toString();
+  }
+  
+  public String getWarnings() {
+    return this.warnings.toString();
+  }
+
+  public void clearErrorReport() {
+    this.errors = new StringBuilder(1024);
+    if (null == this.header || !this.header.isPresent()) {
+      this.errors.append("No header row found.\n");
+    }
+    if (null == this.cmSeries || !this.cmSeries.isPresent()) {
+      this.errors.append("Unable to determine the Crop Model Excersize for this ACMO.\n");
+    }
+  }
+  
+  public void clearWarnings() {
+    this.warnings = new StringBuilder(1024);
+  }
+
   public Optional<String[]> getHeader() {
     return this.header;
   }
 
-  public boolean checkFormat() {
+  public Optional<String> getCMSeries() {
+    return this.cmSeries;
+  }
 
-    boolean errors = false;
+  public Path getCleanFilename() {
+    return getCleanFilename(false);
+  }
+
+  public Path getCleanFilename(boolean generate) {
+    if (generate || this.filename == null) {
+      StringBuilder sb = new StringBuilder(100);
+      StringBuilder cropString = new StringBuilder();
+      sb.append("ACMO-");
+      if (regionId.isPresent()) {
+        sb.append(regionId.get());
+      } else {
+        sb.append("REGION");
+      }
+      sb.append("-");
+      for (String crop : this.crops) {
+        cropString.append(crop.toUpperCase().replace(" ", ""));
+        cropString.append("_");
+      }
+      if (cropString.length() == 0) {
+        sb.append("CROP");
+      } else {
+        cropString.delete(cropString.lastIndexOf("_"), cropString.length());
+        sb.append(cropString.toString());
+      }
+      sb.append("-");
+      if (climateId.isPresent()) {
+        sb.append(climateId.get());
+      } else {
+        sb.append("CLIMATE");
+      }
+      sb.append("-");
+      if (RAPId.isPresent()) {
+        sb.append(RAPId.get()).append("-");
+      }
+      if (cmSeries.isPresent()) {
+        sb.append(cmSeries.get()).append("-");
+      }
+      if (cropModel.isPresent()) {
+        sb.append(cropModel.get());
+      } else {
+        sb.append("MODEL");
+      }
+      sb.append(".csv");
+      this.filename = this.path.resolveSibling(sb.toString());
+    }
+    return this.filename;
+  }
+
+  public boolean checkFormat() {
+    boolean fmtErrors = false;
+    clearErrorReport();
     if (this.header.isPresent()) {
       int headerLength = this.header.get().length;
       List<Integer> dateColumns = getDateColumns();
       try (CSVReader reader = new CSVReader(new FileReader(this.path.toFile()))) {
         Optional<String[]> nextLine = Optional.ofNullable(reader.readNext());
         long lineNum = 0L;
-        while(nextLine.isPresent()) {
-          boolean lineError = false;
+        while (nextLine.isPresent()) {
+          //boolean lineError = false;
           boolean dateError = false;
+          boolean cropFailWarn = false;
           lineNum++;
           String[] line = nextLine.get();
-          if (line.length != headerLength) {
+          // This is currently acceptable, because Excel truncates missing lines
+          // The issue we need to check for is gaps or 12-30-0 errors.
+          // TODO: Check for 12-30-0 errors.
+          /*if (line.length != headerLength) {
             lineError = true;
-            errors = true;
-            LOG.error("Invalid number of columns on line " + lineNum);
-          }
-
-          if (! lineError ) {
-            if (! line[0].equals("")) {
-              char token = (line[0].startsWith("\"")) ? line[0].charAt(1) : line[0].charAt(0);
-              if (token == '*') {
-                StringBuffer errorLines = new StringBuffer("Invalid date for ");
-                int errorsFound = 0;
-                for(Integer idx : dateColumns) {
-                  if (! line[idx].equals("")) {
-                    try {
-                      LocalDate d = DATE_FORMAT.parseLocalDate(line[idx]);
-                    } catch (IllegalArgumentException ex) {
-                      errorsFound ++;
-                      errorLines.append(this.header.get()[idx]);
-                      errorLines.append(", ");
-                      dateError = true;
-                    }
+            fmtErrors = true;
+            this.errors.append("Found ");
+            this.errors.append(line.length);
+            this.errors.append(" columns and expected ");
+            this.errors.append(headerLength);
+            this.errors.append(" on line ");
+            this.errors.append(lineNum);
+            this.errors.append("\n");
+          }*/
+          if (!line[0].equals("")) {
+            char token = (line[0].startsWith("\"")) ? line[0].charAt(1) : line[0].charAt(0);
+            if (token == '*') {
+              StringBuilder errorLines = new StringBuilder("Invalid date for ");
+              StringBuilder warningLines = new StringBuilder("Suspected crop failure on ");
+              int errorsFound = 0;
+              for (Integer idx : dateColumns) {
+                try {
+                if (!line[idx].equals("")) {
+                  try {
+                    LocalDate d = DATE_FORMAT.parseLocalDate(line[idx]);
+                  } catch (IllegalArgumentException ex) {
+                    errorsFound++;
+                    errorLines.append(this.header.get()[idx]);
+                    errorLines.append(", ");
+                    dateError = true;
                   }
                 }
-                if (dateError) {
-                  errors = true;
-                  errorLines.deleteCharAt(errorLines.lastIndexOf(","));
-                  if (errorsFound > 1) {
-                    errorLines.insert(12, 's');
-                    errorLines.insert(errorLines.lastIndexOf(",")+1, " and");
-                    if (errorsFound == 2) {
-                      errorLines.deleteCharAt(errorLines.lastIndexOf(","));
-                    }
-                  }
-                  errorLines.append("on line ");
-                  errorLines.append(lineNum);
-                  LOG.error(errorLines.toString());
-                  errorLines = null;
+                } catch (IndexOutOfBoundsException ex) {
+                  // This means that we have an issue here
+                  // Most likely a crop failure, but this is NOT
+                  // considered an error.
+                  cropFailWarn = true;
+                  break;
                 }
+              }
+              if (dateError) {
+                fmtErrors = true;
+                errorLines.deleteCharAt(errorLines.lastIndexOf(","));
+                if (errorsFound > 1) {
+                  errorLines.insert(12, 's');
+                  errorLines.insert(errorLines.lastIndexOf(",") + 1, " and");
+                  if (errorsFound == 2) {
+                    errorLines.deleteCharAt(errorLines.lastIndexOf(","));
+                  }
+                }
+                errorLines.append("on line ");
+                errorLines.append(lineNum);
+                this.errors.append(errorLines.toString());
+                this.errors.append("\n");
+              }
+              if (cropFailWarn) {
+                warningLines.append("on line ");
+                warningLines.append(lineNum);
+                warningLines.append("\n");
+                this.warnings.append(warningLines.toString());
               }
             }
           }
@@ -135,9 +251,9 @@ public class ACMOFile extends CropModelFile {
       }
     } else {
       // The format is incorrect if it has no header
-      errors = true;
+      fmtErrors = true;
     }
-    return !errors;
+    return !fmtErrors;
   }
 
   private void loadHeader() {
@@ -149,13 +265,13 @@ public class ACMOFile extends CropModelFile {
       try (CSVReader reader = new CSVReader(new FileReader(this.path.toFile()))) {
         Optional<String[]> nextLine = Optional.ofNullable(reader.readNext());
         long lineNum = 0L;
-        while(nextLine.isPresent()) {
+        while (nextLine.isPresent()) {
           lineNum++;
           String[] line = nextLine.get();
-          if (! line[0].equals("")) {
+          if (!line[0].equals("")) {
             char token = (line[0].startsWith("\"")) ? line[0].charAt(1) : line[0].charAt(0);
             if (token == '#') {
-              LOG.debug("Header found on " + lineNum);
+              LOG.fine("Header found on " + lineNum);
               this.header = nextLine;
               break;
             }
@@ -166,7 +282,7 @@ public class ACMOFile extends CropModelFile {
         this.header = Optional.empty();
       }
       if (null == this.header) {
-        LOG.error("No header found in file  " + this.path.toString());
+        this.errors.append("No ACMO header found\n");
         this.header = Optional.empty();
       }
     }
@@ -177,12 +293,158 @@ public class ACMOFile extends CropModelFile {
     if (header.isPresent()) {
       String[] h = header.get();
       int l = h.length;
-      for(int i=0; i < l; i++) {
+      for (int i = 0; i < l; i++) {
         if (h[i].endsWith("DAT") || h[i].endsWith("DATE") || h[i].endsWith("DAT_S")) {
           colNum.add(i);
         }
       }
     }
     return colNum;
+  }
+
+  private int getColumn(String columnName) {
+    String cName = columnName.toUpperCase();
+    if (header.isPresent()) {
+      String[] h = header.get();
+      int l = h.length;
+      for (int i = 0; i < l; i++) {
+        if (h[i].toUpperCase().equals(cName)) {
+          return i;
+        }
+      }
+    }
+    return -1;
+  }
+
+  private void checkCMSeries() {
+
+    try (CSVReader reader = new CSVReader(new FileReader(this.path.toFile()))) {
+      String cm = null;
+
+      boolean cmFound = false;
+      boolean fenDiff = false;
+
+      int exnameCol = getColumn("exname");
+      int climIdCol = getColumn("clim_id");
+      int manIdCol = getColumn("man_id");
+      int fenTotCol = getColumn("fen_tot");
+
+      String exnameBase = null;
+      String fenTotCheck = null;
+      String manIdCheck = null;
+      String climIdCheck = null;
+
+      String[] captureColumns = {"reg_id", "crid_text", "rap_id", "crop_model"};
+      Optional<String[]> nextLine = Optional.ofNullable(reader.readNext());
+      if (exnameCol != -1) {
+        while (nextLine.isPresent()) {
+          String[] line = nextLine.get();
+          if (!line[0].equals("")) {
+            char token = (line[0].startsWith("\"")) ? line[0].charAt(1) : line[0].charAt(0);
+            if (token == '*') {
+              String exname = line[exnameCol];
+              String climId = line[climIdCol];
+              String manId = line[manIdCol];
+              String fenTot = line[fenTotCol];
+
+              if (!regionId.isPresent()) {
+                if (climId != null && !climId.equals("")) {
+                  climateId = Optional.of(climId);
+                }
+
+                for (String capture : captureColumns) {
+                  String val = line[getColumn(capture)];
+                  switch (capture) {
+                    case "reg_id":
+                      if (val != null && !val.equals("")) {
+                        regionId = Optional.of(val);
+                      }
+                      break;
+                    case "crid_text":
+                      if (val != null && !val.equals("")) {
+                        crops.add(val);
+                      }
+                      break;
+                    case "rap_id":
+                      if (val != null && !val.equals("")) {
+                        RAPId = Optional.of(val);
+                      }
+                      break;
+                    case "crop_model":
+                      if (val != null && !val.equals("")) {
+                        cropModel = Optional.of(val);
+                      }
+                      break;
+                  }
+                }
+              }
+
+              if (!cmFound && exname.contains("__")) {
+                String thisExnameBase = exname.substring(0, exname.indexOf("__"));
+                if (exnameBase == null) {
+                  exnameBase = thisExnameBase;
+                } else if (!exnameBase.equals(thisExnameBase)) {
+                  cmFound = true;
+                }
+                if (climIdCheck == null) {
+                  climIdCheck = climId;
+                }
+
+                if (manIdCheck == null) {
+                  manIdCheck = manId;
+                }
+
+                if (fenTotCheck == null) {
+                  fenTotCheck = fenTot;
+                }
+
+                if (cmFound) {
+                  if (climId.startsWith("0X")) {
+                    cm = "CM1";
+                    break;
+                  } else if (manId.equals("")) {
+                    cm = "CM2";
+                    break;
+                  } else {
+                    try {
+                      Integer manIdInt = Integer.parseInt(manId);
+                      cm = "CM" + (manIdInt + 2);
+                    } catch (NumberFormatException ex) {
+                      cm = "CM-" + manId;
+                    }
+                    break;
+                  }
+                }
+
+                if (!fenTot.equals(fenTotCheck)) {
+                  fenDiff = true;
+                }
+
+                // This is going to be higher than CM0 or a CTWN or C3MP
+              } else {
+                // This is CM0
+                cmFound = true;
+                cm = "CM0";
+                climateId = Optional.ofNullable(climId);
+                break;
+              }
+            }
+          }
+          nextLine = Optional.ofNullable(reader.readNext());
+        }
+        if (!cmFound) {
+          if (fenDiff) {
+            cm = "CTWN";
+          } else {
+            cm = "C3MP";
+          }
+        }
+        cmSeries = Optional.ofNullable(cm);
+      } else {
+        cmSeries = Optional.empty();
+      }
+    } catch (IOException ex) {
+      cmSeries = Optional.empty();
+    }
   }
 }

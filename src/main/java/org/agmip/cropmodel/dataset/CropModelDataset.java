@@ -2,10 +2,12 @@ package org.agmip.cropmodel.dataset;
 
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.file.FileSystem;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.function.Predicate;
@@ -20,6 +22,7 @@ import org.agmip.cropmodel.dataset.filetype.*;
 import org.agmip.cropmodel.dataset.util.AgMIPFileTypeIdentifier;
 import org.agmip.cropmodel.dataset.util.DOMEHandler;
 import org.agmip.cropmodel.dataset.util.LinkChecker;
+import org.agmip.cropmodel.dataset.util.ZipFS;
 
 public class CropModelDataset {
 
@@ -101,6 +104,22 @@ public class CropModelDataset {
     } else {
       LOG.log(Level.INFO, "Cannot add file: {0}", file.getFileName().toString());
     }
+  }
+  
+  public String promoteToCultivar(Path f) {
+    SupplementalFile file = new SupplementalFile(f);
+    ModelSpecificFile modelFile = new ModelSpecificFile(f);
+    String msg = "";
+    if (extraFiles.contains(file)) {
+      msg = modelFile.getName() + " has been marked as a cultivar file.";
+      extraFiles.remove(file);
+      modelFiles.add(modelFile);
+    } else if (modelFiles.contains(modelFile)) {
+      msg = modelFile.getName() + " has already been marked as a cultivar file.";
+    } else {
+      msg = "Cannot mark a non-supplemental file as cultivar";
+    }
+    return msg;
   }
 
   public String datasetStatisticsHTML() {
@@ -221,8 +240,26 @@ public class CropModelDataset {
       });
     }
 
+    boolean acmosValid = true;
     if(acmoPresent) {
       out.println("Verifying ACMO data structures...");
+      boolean allValid = true;
+      for(ACMOFile acmo : acmoFiles) {
+        boolean isValid = acmo.isValid();
+        if (! isValid) {
+          allValid = false;
+          err.println("[FAILED] " + acmo.getPath().toString());
+          err.println("------------");
+          err.println("Error Report");
+          err.println("------------");
+          err.println(acmo.getErrorReport());
+        }
+        if (! acmo.getWarnings().equals("")) {
+          out.println("[WARNING] " + acmo.getPath().toString());
+          out.println(acmo.getWarnings());
+        }
+      }
+      acmosValid = allValid;
     }
 
     if (linkPresent && !acmoPresent) {
@@ -238,6 +275,43 @@ public class CropModelDataset {
         return LinkChecker.checkLinkedData(path.getPath(), out, err, eids, sids, wids, exnames, soilids, wstclim);
       }).allMatch(allpass);
     }
-    return acmoLinkageTest;
+    return acmosValid && acmoLinkageTest;
+  }
+  
+  public void packageDataset(Path zipFile) {
+    packageDataset(zipFile, "");
+  }
+  
+  public void packageDataset(Path zipFile, String rootDir, Path... additionalFiles) {
+    try (FileSystem zipFS = ZipFS.createZipFileSystem(zipFile.toString(), true)) {
+      Path root = zipFS.getPath(rootDir);
+      for (Path add : additionalFiles) {
+        Path d = root.resolve(add.getFileName().toString());
+        Path p = d.getParent();
+        if (Files.notExists(p)) {
+          Files.createDirectories(p);
+        }
+        Files.copy(add, d, StandardCopyOption.REPLACE_EXISTING);
+      }
+      
+      for(ACMOFile f : acmoFiles) {
+        if (f.isValid()) {
+          // Get the final path
+          Path dest = root.resolve("ACMOS");
+          dest = dest.resolve((f.getCMSeries().isPresent() ? f.getCMSeries().get() : "UNKNOWN"));
+          Path fname = f.getCleanFilename().getFileName();
+          dest = dest.resolve(fname.toString());
+          Path parent = dest.getParent();
+          if (Files.notExists(parent)) {
+            Files.createDirectories(parent);
+          }
+          Files.copy(f.getPath(), dest, StandardCopyOption.REPLACE_EXISTING);
+        } else {
+          LOG.log(Level.WARNING, "File {0} is invalid.", f.toString());
+        }
+      }
+    } catch (IOException ex) {
+      LOG.log(Level.SEVERE, null, ex);
+    }
   }
 }
