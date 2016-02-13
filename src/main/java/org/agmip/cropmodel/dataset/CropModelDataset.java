@@ -271,9 +271,13 @@ public class CropModelDataset {
       out.println("Ignoring AgMIP linkage files and using ACMO files for linkage.");
       out.println("Verifying all linkages available.");
       Predicate<Boolean> allpass = e -> e == true;
-      acmoLinkageTest = acmoFiles.stream().map(path -> {
-        return LinkChecker.checkLinkedData(path.getPath(), out, err, eids, sids, wids, exnames, soilids, wstclim);
-      }).allMatch(allpass);
+      
+      boolean acmoLinkageAll = true;
+      for (ACMOFile path : acmoFiles) {
+        boolean thisLinkage = LinkChecker.checkLinkedData(path.getPath(), out, err, eids, sids, wids, exnames, soilids, wstclim);
+        if (!thisLinkage) acmoLinkageAll = false;
+      }
+      if (!acmoLinkageAll) acmoLinkageTest = false;
     }
     return acmosValid && acmoLinkageTest;
   }

@@ -90,7 +90,7 @@ public class ACMOFile extends CropModelFile {
   public String getErrorReport() {
     return this.errors.toString();
   }
-  
+
   public String getWarnings() {
     return this.warnings.toString();
   }
@@ -104,7 +104,7 @@ public class ACMOFile extends CropModelFile {
       this.errors.append("Unable to determine the Crop Model Excersize for this ACMO.\n");
     }
   }
-  
+
   public void clearWarnings() {
     this.warnings = new StringBuilder(1024);
   }
@@ -175,6 +175,8 @@ public class ACMOFile extends CropModelFile {
       try (CSVReader reader = new CSVReader(new FileReader(this.path.toFile()))) {
         Optional<String[]> nextLine = Optional.ofNullable(reader.readNext());
         long lineNum = 0L;
+        long dataLine = 0L;
+        long dateFail = 0L;
         while (nextLine.isPresent()) {
           //boolean lineError = false;
           boolean dateError = false;
@@ -198,21 +200,23 @@ public class ACMOFile extends CropModelFile {
           if (!line[0].equals("")) {
             char token = (line[0].startsWith("\"")) ? line[0].charAt(1) : line[0].charAt(0);
             if (token == '*') {
+              dataLine++;
               StringBuilder errorLines = new StringBuilder("Invalid date for ");
               StringBuilder warningLines = new StringBuilder("Suspected crop failure on ");
               int errorsFound = 0;
               for (Integer idx : dateColumns) {
                 try {
-                if (!line[idx].equals("")) {
-                  try {
-                    LocalDate d = DATE_FORMAT.parseLocalDate(line[idx]);
-                  } catch (IllegalArgumentException ex) {
-                    errorsFound++;
-                    errorLines.append(this.header.get()[idx]);
-                    errorLines.append(", ");
-                    dateError = true;
+                  if (!line[idx].equals("")) {
+                    try {
+                      LocalDate d = DATE_FORMAT.parseLocalDate(line[idx]);
+                    } catch (IllegalArgumentException ex) {
+
+                      errorsFound++;
+                      errorLines.append(this.header.get()[idx]);
+                      errorLines.append(", ");
+                      dateError = true;
+                    }
                   }
-                }
                 } catch (IndexOutOfBoundsException ex) {
                   // This means that we have an issue here
                   // Most likely a crop failure, but this is NOT
@@ -222,6 +226,7 @@ public class ACMOFile extends CropModelFile {
                 }
               }
               if (dateError) {
+                dateFail++;
                 fmtErrors = true;
                 errorLines.deleteCharAt(errorLines.lastIndexOf(","));
                 if (errorsFound > 1) {
@@ -246,6 +251,10 @@ public class ACMOFile extends CropModelFile {
           }
           nextLine = Optional.ofNullable(reader.readNext());
         }
+        if (dataLine == dateFail) {
+          this.clearErrorReport();
+          this.errors.append("Date format incorrect on every data line in this file.");
+        }
       } catch (IOException ex) {
         return false;
       }
@@ -253,6 +262,7 @@ public class ACMOFile extends CropModelFile {
       // The format is incorrect if it has no header
       fmtErrors = true;
     }
+    // Now see if EVERY line has a date failure
     return !fmtErrors;
   }
 
@@ -271,7 +281,7 @@ public class ACMOFile extends CropModelFile {
           if (!line[0].equals("")) {
             char token = (line[0].startsWith("\"")) ? line[0].charAt(1) : line[0].charAt(0);
             if (token == '#') {
-              LOG.fine("Header found on " + lineNum);
+              LOG.log(Level.FINE, "Header found on {0}", lineNum);
               this.header = nextLine;
               break;
             }
@@ -319,29 +329,36 @@ public class ACMOFile extends CropModelFile {
   private void checkCMSeries() {
 
     try (CSVReader reader = new CSVReader(new FileReader(this.path.toFile()))) {
-      String cm = null;
-
-      boolean cmFound = false;
       boolean fenDiff = false;
+      boolean cmFound = false;
 
       int exnameCol = getColumn("exname");
       int climIdCol = getColumn("clim_id");
       int manIdCol = getColumn("man_id");
       int fenTotCol = getColumn("fen_tot");
 
+      String cm = null;
       String exnameBase = null;
       String fenTotCheck = null;
       String manIdCheck = null;
-      String climIdCheck = null;
-
+      String batchMatch = "\\w+_\\d+_b\\d+__\\d+";
       String[] captureColumns = {"reg_id", "crid_text", "rap_id", "crop_model"};
       Optional<String[]> nextLine = Optional.ofNullable(reader.readNext());
+
       if (exnameCol != -1) {
+        long dataStartLine = -1L;
+        long lineNum = 0L;
         while (nextLine.isPresent()) {
+          lineNum++;
           String[] line = nextLine.get();
           if (!line[0].equals("")) {
             char token = (line[0].startsWith("\"")) ? line[0].charAt(1) : line[0].charAt(0);
             if (token == '*') {
+
+              if (dataStartLine == -1L) {
+                dataStartLine = lineNum;
+              }
+
               String exname = line[exnameCol];
               String climId = line[climIdCol];
               String manId = line[manIdCol];
@@ -379,32 +396,20 @@ public class ACMOFile extends CropModelFile {
                 }
               }
 
-              if (!cmFound && exname.contains("__")) {
-                String thisExnameBase = exname.substring(0, exname.indexOf("__"));
-                if (exnameBase == null) {
-                  exnameBase = thisExnameBase;
-                } else if (!exnameBase.equals(thisExnameBase)) {
-                  cmFound = true;
-                }
-                if (climIdCheck == null) {
-                  climIdCheck = climId;
-                }
+              if (manIdCheck == null) {
+                manIdCheck = manId;
+              }
 
-                if (manIdCheck == null) {
-                  manIdCheck = manId;
-                }
+              if (fenTotCheck == null) {
+                fenTotCheck = fenTot;
+              }
 
-                if (fenTotCheck == null) {
-                  fenTotCheck = fenTot;
-                }
-
-                if (cmFound) {
-                  if (climId.startsWith("0X")) {
+              if (!exname.matches(batchMatch)) {
+                if (exname.contains("__")) {
+                  if (climateId.isPresent() && climateId.get().startsWith("0X")) {
                     cm = "CM1";
-                    break;
-                  } else if (manId.equals("")) {
+                  } else if (null == manId || manId.equals("")) {
                     cm = "CM2";
-                    break;
                   } else {
                     try {
                       Integer manIdInt = Integer.parseInt(manId);
@@ -412,22 +417,29 @@ public class ACMOFile extends CropModelFile {
                     } catch (NumberFormatException ex) {
                       cm = "CM-" + manId;
                     }
-                    break;
                   }
+                  cmFound = true;
+                  break;
                 }
 
-                if (!fenTot.equals(fenTotCheck)) {
-                  fenDiff = true;
+                if (exnameBase == null) {
+                  exnameBase = exname;
                 }
 
-                // This is going to be higher than CM0 or a CTWN or C3MP
-              } else {
-                // This is CM0
-                cmFound = true;
-                cm = "CM0";
-                climateId = Optional.ofNullable(climId);
-                break;
+                if (!exnameBase.equals(exname)) {
+                  if (dataStartLine == (lineNum - 1)) {
+                    // Technically should be CM0
+                    cm = "CM0";
+                  }
+                  cmFound = true;
+                  break;
+                }
               }
+
+              if (!fenDiff && !fenTot.equals(fenTotCheck)) {
+                fenDiff = true;
+              }
+              
             }
           }
           nextLine = Optional.ofNullable(reader.readNext());
