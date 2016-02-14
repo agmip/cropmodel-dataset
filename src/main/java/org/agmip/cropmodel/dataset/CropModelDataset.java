@@ -19,8 +19,10 @@ import java.util.logging.Logger;
 import org.agmip.ace.AceDataset;
 import org.agmip.ace.io.AceParser;
 import org.agmip.cropmodel.dataset.filetype.*;
+import org.agmip.cropmodel.dataset.util.ACESeamer;
 import org.agmip.cropmodel.dataset.util.AgMIPFileTypeIdentifier;
 import org.agmip.cropmodel.dataset.util.DOMEHandler;
+import org.agmip.cropmodel.dataset.util.DOMESeamer;
 import org.agmip.cropmodel.dataset.util.LinkChecker;
 import org.agmip.cropmodel.dataset.util.ZipFS;
 
@@ -297,6 +299,12 @@ public class CropModelDataset {
         }
         Files.copy(add, d, StandardCopyOption.REPLACE_EXISTING);
       }
+      
+      Path aceOutput = root.resolve("dataset.aceb");
+      ACESeamer.seam(aceFiles, aceOutput);
+      
+      Path domeOutput = root.resolve("alldomes.dome");
+      DOMESeamer.seam(domeFiles, domeOutput);
       
       for(ACMOFile f : acmoFiles) {
         if (f.isValid()) {
