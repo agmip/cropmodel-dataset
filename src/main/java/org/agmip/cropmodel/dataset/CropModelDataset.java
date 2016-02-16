@@ -107,7 +107,7 @@ public class CropModelDataset {
       LOG.log(Level.INFO, "Cannot add file: {0}", file.getFileName().toString());
     }
   }
-  
+
   public String promoteToCultivar(Path f) {
     SupplementalFile file = new SupplementalFile(f);
     ModelSpecificFile modelFile = new ModelSpecificFile(f);
@@ -160,15 +160,14 @@ public class CropModelDataset {
     }
 
     // These are approximate guesses to make loading easier
-    Set<String> eids =    new HashSet<>(150);
-    Set<String> wids =    new HashSet<>(25);
-    Set<String> sids =    new HashSet<>(25);
-    Set<String> dids =    new HashSet<>(200);
+    Set<String> eids = new HashSet<>(150);
+    Set<String> wids = new HashSet<>(25);
+    Set<String> sids = new HashSet<>(25);
+    Set<String> dids = new HashSet<>(200);
     Set<String> domeNames = new HashSet<>(200);
     Set<String> exnames = new HashSet<>(150);
     Set<String> wstclim = new HashSet<>(100);
     Set<String> soilids = new HashSet<>(25);
-
 
     if (acePresent) {
       out.println("Extracting ACE IDs for checking...");
@@ -181,11 +180,13 @@ public class CropModelDataset {
                 eids.add(exp.getId());
               }
               String exname = exp.getValueOr("exname", "");
-              if (! exname.equals("") && ! exnames.contains(exname)) {
+              if (!exname.equals("") && !exnames.contains(exname)) {
                 exnames.add(exname);
               }
             } catch (IOException ex) {
-              Logger.getLogger(CropModelDataset.class.getName()).log(Level.SEVERE, null, ex);
+              err.println("[FAILED] " + ace.getPath().toFile());
+              err.println("\tError loading experiments in file");
+              LOG.log(Level.WARNING, null, ex);
             }
           });
           ds.getWeathers().stream().forEach((wth) -> {
@@ -195,11 +196,13 @@ public class CropModelDataset {
               }
               String wst_id = wth.getValueOr("wst_id", "");
               String clim_id = wth.getValueOr("clim_id", "");
-              if (! wst_id.equals("") && ! wstclim.contains(wst_id + "|" + clim_id)) {
+              if (!wst_id.equals("") && !wstclim.contains(wst_id + "|" + clim_id)) {
                 wstclim.add(wst_id + "|" + clim_id);
               }
             } catch (IOException ex) {
-              Logger.getLogger(CropModelDataset.class.getName()).log(Level.SEVERE, null, ex);
+              err.println("[FAILED] " + ace.getPath().toFile());
+              err.println("\tError loading weather in file.");
+              LOG.log(Level.WARNING, null, ex);
             }
           });
           ds.getSoils().stream().forEach((soil) -> {
@@ -208,15 +211,19 @@ public class CropModelDataset {
                 sids.add(soil.getId());
               }
               String soil_id = soil.getValueOr("soil_id", "");
-              if (! soil_id.equals("") && ! soilids.contains(soil_id)) {
+              if (!soil_id.equals("") && !soilids.contains(soil_id)) {
                 soilids.add(soil_id);
               }
             } catch (IOException ex) {
-              Logger.getLogger(CropModelDataset.class.getName()).log(Level.SEVERE, null, ex);
+              err.println("[FAILED] " + ace.getPath().toFile());
+              err.println("\tError loading soils in file.");
+              LOG.log(Level.WARNING, "Failure to parse for weather {0}: {1}", new Object[]{ace.getPath().toString(), ex});
             }
           });
         } catch (IOException ex) {
-          Logger.getLogger(CropModelDataset.class.getName()).log(Level.SEVERE, null, ex);
+          err.println("[FAILED] " + ace.getPath().toFile());
+          err.println("\tThis file is either corrupted or has an invalid structure.");
+          LOG.log(Level.WARNING, "Failure to parse {0}: {1}", new Object[]{ace.getPath().toString(), ex});
         }
       });
       out.println("Found " + eids.size() + " unique experiment IDs");
@@ -243,12 +250,12 @@ public class CropModelDataset {
     }
 
     boolean acmosValid = true;
-    if(acmoPresent) {
+    if (acmoPresent) {
       out.println("Verifying ACMO data structures...");
       boolean allValid = true;
-      for(ACMOFile acmo : acmoFiles) {
+      for (ACMOFile acmo : acmoFiles) {
         boolean isValid = acmo.isValid();
-        if (! isValid) {
+        if (!isValid) {
           allValid = false;
           err.println("[FAILED] " + acmo.getPath().toString());
           err.println("------------");
@@ -256,7 +263,7 @@ public class CropModelDataset {
           err.println("------------");
           err.println(acmo.getErrorReport());
         }
-        if (! acmo.getWarnings().equals("")) {
+        if (!acmo.getWarnings().equals("")) {
           out.println("[WARNING] " + acmo.getPath().toString());
           out.println(acmo.getWarnings());
         }
@@ -273,21 +280,25 @@ public class CropModelDataset {
       out.println("Ignoring AgMIP linkage files and using ACMO files for linkage.");
       out.println("Verifying all linkages available.");
       Predicate<Boolean> allpass = e -> e == true;
-      
+
       boolean acmoLinkageAll = true;
       for (ACMOFile path : acmoFiles) {
         boolean thisLinkage = LinkChecker.checkLinkedData(path.getPath(), out, err, eids, sids, wids, exnames, soilids, wstclim);
-        if (!thisLinkage) acmoLinkageAll = false;
+        if (!thisLinkage) {
+          acmoLinkageAll = false;
+        }
       }
-      if (!acmoLinkageAll) acmoLinkageTest = false;
+      if (!acmoLinkageAll) {
+        acmoLinkageTest = false;
+      }
     }
     return acmosValid && acmoLinkageTest;
   }
-  
+
   public void packageDataset(Path zipFile) {
     packageDataset(zipFile, "");
   }
-  
+
   public void packageDataset(Path zipFile, String rootDir, Path... additionalFiles) {
     try (FileSystem zipFS = ZipFS.createZipFileSystem(zipFile.toString(), true)) {
       Path root = zipFS.getPath(rootDir);
@@ -299,14 +310,14 @@ public class CropModelDataset {
         }
         Files.copy(add, d, StandardCopyOption.REPLACE_EXISTING);
       }
-      
+
       Path aceOutput = root.resolve("dataset.aceb");
       ACESeamer.seam(aceFiles, aceOutput);
-      
+
       Path domeOutput = root.resolve("alldomes.dome");
       DOMESeamer.seam(domeFiles, domeOutput);
-      
-      for(ACMOFile f : acmoFiles) {
+
+      for (ACMOFile f : acmoFiles) {
         if (f.isValid()) {
           // Get the final path
           Path dest = root.resolve("ACMOS");

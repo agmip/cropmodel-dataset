@@ -30,7 +30,6 @@ package org.agmip.cropmodel.dataset.filetype;
 
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -202,6 +201,7 @@ public class ACMOFile extends CropModelFile {
             if (token == '*') {
               dataLine++;
               StringBuilder errorLines = new StringBuilder("Invalid date for ");
+              StringBuilder errorVals  = new StringBuilder("(");
               StringBuilder warningLines = new StringBuilder("Suspected crop failure on ");
               int errorsFound = 0;
               for (Integer idx : dateColumns) {
@@ -214,6 +214,8 @@ public class ACMOFile extends CropModelFile {
                       errorsFound++;
                       errorLines.append(this.header.get()[idx]);
                       errorLines.append(", ");
+                      errorVals.append(line[idx]);
+                      errorVals.append(", ");
                       dateError = true;
                     }
                   }
@@ -229,6 +231,8 @@ public class ACMOFile extends CropModelFile {
                 dateFail++;
                 fmtErrors = true;
                 errorLines.deleteCharAt(errorLines.lastIndexOf(","));
+                int evLast = errorVals.lastIndexOf(",");
+                errorVals.replace(evLast, evLast+1, ")");
                 if (errorsFound > 1) {
                   errorLines.insert(12, 's');
                   errorLines.insert(errorLines.lastIndexOf(",") + 1, " and");
@@ -236,6 +240,7 @@ public class ACMOFile extends CropModelFile {
                     errorLines.deleteCharAt(errorLines.lastIndexOf(","));
                   }
                 }
+                errorLines.append(errorVals.toString());
                 errorLines.append("on line ");
                 errorLines.append(lineNum);
                 this.errors.append(errorLines.toString());
