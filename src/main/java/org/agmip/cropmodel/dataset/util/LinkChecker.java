@@ -39,6 +39,9 @@ import java.util.Set;
 import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.agmip.cropmodel.dataset.Constants;
+import static org.agmip.cropmodel.dataset.Constants.BATCH_REGEX;
+import org.agmip.cropmodel.dataset.filetype.ACMOFile;
 
 /**
  *
@@ -46,150 +49,148 @@ import java.util.logging.Logger;
  */
 public class LinkChecker {
 
-    private LinkChecker() {
-    }
+  private LinkChecker() {
+  }
 
-    private static final Logger LOG = Logger.getLogger(LinkChecker.class.getName());
+  private static final Logger LOG = Logger.getLogger(LinkChecker.class.getName());
 
-    public static boolean checkLinkedData(Path path, PrintWriter out, PrintWriter err,
-            Set<String> eids, Set<String> sids, Set<String> wids,
-            Set<String> exnames, Set<String> soilids, Set<String> wstclim) {
+  public static boolean checkLinkedData(Path path, PrintWriter out, PrintWriter err,
+      Set<String> eids, Set<String> sids, Set<String> wids,
+      Set<String> exnames, Set<String> soilids, Set<String> wstclim) {
 
-        String[] searchColumns = {"EXNAME", "EID",  "SOIL_ID", "SID", "WST_ID", "CLIM_ID", "WID", "FIELD_OVERLAY", "DOID", "SEASONAL_STRATEGY", "DSID", "ROTATIONAL_ANALYSIS", "DRID"};
-        int[] searchResults = new int[searchColumns.length];
-        boolean headerFound = false;
-        boolean problemFound = false;
+    String[] searchColumns = {"EXNAME", "EID", "SOIL_ID", "SID", "WST_ID", "CLIM_ID", "WID", "FIELD_OVERLAY", "DOID", "SEASONAL_STRATEGY", "DSID", "ROTATIONAL_ANALYSIS", "DRID"};
+    int[] searchResults = new int[searchColumns.length];
+    boolean headerFound = false;
+    boolean problemFound = false;
 
-        try (CSVReader reader = new CSVReader(new FileReader(path.toFile()))) {
-            out.println("Checking file: " + path.toString());
-            Optional<String[]> line = Optional.ofNullable(reader.readNext());
-            List<String> errors = new ArrayList<>();
-            long lineNum = 0L;
-            while (line.isPresent()) {
-                lineNum++;
-                String[] l = line.get();
-                if(l[0].equals("")) {
-                    err.println("Invalid ACMO entry on line " + lineNum);
-                    line = Optional.ofNullable(reader.readNext());
-                    continue;
-                }
-                char token = (l[0].startsWith("\"")) ? l[0].charAt(1) : l[0].charAt(0);
-                switch (token) {
-                    case '#':
-                        //This is the header. Need to find the columns for the IDs and metadata IDs
-                        for (int i = 0; i < searchColumns.length; i++) {
-                            for (int k = 0; k < l.length; k++) {
-                                if (l[k].contains(searchColumns[i])) {
-                                    searchResults[i] = k;
-                                    break;
-                                }
-                            }
-                        }
-                        headerFound = true;
-                        break;
-                    case '*':
-                        //This is an entry, need to make sure that the header is set already;
-                        if (headerFound) {
-                            boolean eidProblem = false;
-                            boolean sidProblem = false;
-                            boolean widProblem = false;
-                            String wst_id = null;
-                            String exname = null;
-                            String soil_id = null;
-                            for (int i = 0; i < searchColumns.length; i++) {
-                                StringBuilder sb = new StringBuilder();
-                                String res = l[searchResults[i]];
-                                boolean pfound = false;
-                                switch (searchColumns[i]) {
-                                    case "EID":
-                                        if (!eids.contains(res)) {
-                                            sb.append("EID not found for [");
-                                            sb.append(exname);
-                                            sb.append("]: ");
-                                            problemFound = true;
-                                            pfound = true;
-                                        }
-                                        break;
-                                    case "SID":
-                                        if (!sids.contains(res)) {
-                                            sb.append("SID not found for [");
-                                            sb.append(soil_id);
-                                            sb.append("]: ");
-                                            problemFound = true;
-                                            pfound = true;
-                                        }
-                                        break;
-                                    case "WID":
-                                        if (!wids.contains(res)) {
-                                            sb.append("WID not found for [");
-                                            sb.append(wst_id);
-                                            sb.append("]: ");
-                                            problemFound = true;
-                                            pfound = true;
-                                        }
-                                        break;
-                                    case "EXNAME":
-                                            int breakPoint = res.indexOf("__");
-                                            if (breakPoint != -1) {
-                                              res = res.substring(0, breakPoint);
-                                            }
-                                            exname = res;
-                                            if (!exnames.contains(res)) {
-                                                sb.append("EXNAME not found: ");
-                                                pfound = true;
-                                            }
-                                        break;
-                                    case "SOIL_ID":
-                                        
-                                            soil_id = res;
-                                            if (!soilids.contains(res)) {
-                                                sb.append("SOIL_ID not found: ");
-                                                pfound = true;
-                                            }
-                                        
-                                        break;
-                                    case "WST_ID":
-                                            wst_id = res;
-                                        break;
-                                    case "CLIM_ID":
-                                        if (wst_id != null) {
-                                            String merged = wst_id + "|" + res;
-                                            if (!wstclim.contains(merged)) {
-                                                sb.append("WST_ID ");
-                                                sb.append(wst_id);
-                                                sb.append(" not found with CLIM_ID: ");
-                                                pfound = true;
-                                            }
-                                            wst_id = wst_id + " + " + res;
-                                        }
-                                        break;
-                                    default:
-                                        break;
-                                }
-                                if (pfound) {
-                                    sb.append(res);
-                                    String error = sb.toString();
-                                    if (!errors.contains(error)) {
-                                        errors.add(error);
-                                    }
-                                }
-                            }
-                        }
-                        break;
-                    default:
-                        //Do nothing
-                        break;
-                }
-                line = Optional.ofNullable(reader.readNext());
-            }
-            if (problemFound) {
-                errors.stream().forEach((error) -> {
-                    err.println(error);
-                });
-            }
-        } catch (IOException ex) {
-            LOG.log(Level.SEVERE, null, ex);
+    try (CSVReader reader = new CSVReader(new FileReader(path.toFile()))) {
+      out.println("Checking file: " + path.toString());
+      Optional<String[]> line = Optional.ofNullable(reader.readNext());
+      List<String> errors = new ArrayList<>();
+      long lineNum = 0L;
+      while (line.isPresent()) {
+        lineNum++;
+        String[] l = line.get();
+        if (l[0].equals("")) {
+          err.println("Invalid ACMO entry on line " + lineNum);
+          line = Optional.ofNullable(reader.readNext());
+          continue;
         }
-        return !problemFound;
+        char token = (l[0].startsWith("\"")) ? l[0].charAt(1) : l[0].charAt(0);
+        switch (token) {
+          case '#':
+            //This is the header. Need to find the columns for the IDs and metadata IDs
+            for (int i = 0; i < searchColumns.length; i++) {
+              for (int k = 0; k < l.length; k++) {
+                if (l[k].contains(searchColumns[i])) {
+                  searchResults[i] = k;
+                  break;
+                }
+              }
+            }
+            headerFound = true;
+            break;
+          case '*':
+            //This is an entry, need to make sure that the header is set already;
+            if (headerFound) {
+              boolean eidProblem = false;
+              boolean sidProblem = false;
+              boolean widProblem = false;
+              String wst_id = null;
+              String exname = null;
+              String soil_id = null;
+              for (int i = 0; i < searchColumns.length; i++) {
+                StringBuilder sb = new StringBuilder();
+                String res = l[searchResults[i]];
+                boolean pfound = false;
+                switch (searchColumns[i]) {
+                  case "EID":
+                    if (!eids.contains(res)) {
+                      sb.append("EID not found for [");
+                      sb.append(exname);
+                      sb.append("]: ");
+                      problemFound = true;
+                      pfound = true;
+                    }
+                    break;
+                  case "SID":
+                    if (!sids.contains(res)) {
+                      sb.append("SID not found for [");
+                      sb.append(soil_id);
+                      sb.append("]: ");
+                      problemFound = true;
+                      pfound = true;
+                    }
+                    break;
+                  case "WID":
+                    if (!wids.contains(res)) {
+                      sb.append("WID not found for [");
+                      sb.append(wst_id);
+                      sb.append("]: ");
+                      problemFound = true;
+                      pfound = true;
+                    }
+                    break;
+                  case "EXNAME":
+                    exname = ACMOFile.extractExname(res);
+                    if (!exnames.contains(res)) {
+                      sb.append("EXNAME not found: ");
+                      pfound = true;
+                    }
+                    break;
+
+                  case "SOIL_ID":
+
+                    soil_id = res;
+                    if (!soilids.contains(res)) {
+                      sb.append("SOIL_ID not found: ");
+                      pfound = true;
+                    }
+
+                    break;
+                  case "WST_ID":
+                    wst_id = res;
+                    break;
+                  case "CLIM_ID":
+                    if (wst_id != null) {
+                      String merged = wst_id + "|" + res;
+                      if (!wstclim.contains(merged)) {
+                        sb.append("WST_ID ");
+                        sb.append(wst_id);
+                        sb.append(" not found with CLIM_ID: ");
+                        pfound = true;
+                      }
+                      wst_id = wst_id + " + " + res;
+                    }
+                    break;
+                  default:
+                    break;
+                }
+                if (pfound) {
+                  sb.append(res);
+                  String error = sb.toString();
+                  if (!errors.contains(error)) {
+                    errors.add(error);
+                  }
+                }
+              }
+            }
+            break;
+
+          default:
+            //Do nothing
+            break;
+        }
+        line = Optional.ofNullable(reader.readNext());
+      }
+      if (problemFound) {
+        errors.stream().forEach((error) -> {
+          err.println(error);
+        });
+      }
+    } catch (IOException ex) {
+      LOG.log(Level.SEVERE, null, ex);
     }
+    return !problemFound;
+  }
 }

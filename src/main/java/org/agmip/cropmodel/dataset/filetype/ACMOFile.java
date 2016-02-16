@@ -40,14 +40,15 @@ import java.util.logging.Logger;
 import java.util.logging.Level;
 
 import com.opencsv.CSVReader;
+import java.util.regex.Matcher;
+import org.agmip.cropmodel.dataset.Constants;
+import static org.agmip.cropmodel.dataset.Constants.DATE_FORMAT;
 import org.joda.time.LocalDate;
-import org.joda.time.format.DateTimeFormatter;
-import org.joda.time.format.ISODateTimeFormat;
 
 public class ACMOFile extends CropModelFile {
 
   private static final Logger LOG = Logger.getLogger(ACMOFile.class.getName());
-  private static final DateTimeFormatter DATE_FORMAT = ISODateTimeFormat.date();
+  private static final String[] CAPTURE_COLUMNS = {"reg_id", "clim_id", "man_id", "crid_text", "rap_id", "crop_model"};
   private StringBuilder errors = new StringBuilder(1024);
   private StringBuilder warnings = new StringBuilder(1024);
   private Optional<String[]> header;
@@ -55,15 +56,18 @@ public class ACMOFile extends CropModelFile {
   private Optional<String> regionId;
   private Optional<String> climateId;
   private Optional<String> RAPId;
+  private Optional<String> managementId;
   private Optional<String> cropModel;
-  private Set<String> crops;
+  private final Set<String> crops;
   private Path filename = null;
 
   public ACMOFile(Path path) {
     super(path);
+    cmSeries = Optional.empty();
     regionId = Optional.empty();
     climateId = Optional.empty();
     RAPId = Optional.empty();
+    managementId = Optional.empty();
     cropModel = Optional.empty();
     crops = new HashSet<>();
     loadHeader();
@@ -142,18 +146,27 @@ public class ACMOFile extends CropModelFile {
         sb.append(cropString.toString());
       }
       sb.append("-");
-      if (climateId.isPresent()) {
-        sb.append(climateId.get());
+      if (cmSeries.isPresent()
+          && (cmSeries.get().equals("C3MP") || cmSeries.get().equals("CTWN"))) {
+        sb.append(cmSeries.get());
       } else {
-        sb.append("CLIMATE");
+        if (climateId.isPresent()) {
+          sb.append(climateId.get());
+        } else {
+          sb.append("CLIMATE");
+        }
+        sb.append("-");
+        if (RAPId.isPresent()) {
+          sb.append("R");
+          sb.append(RAPId.get());
+        }
+        sb.append("-");
+        if (managementId.isPresent()) {
+          sb.append("A");
+          sb.append(managementId.get());
+        }
       }
       sb.append("-");
-      if (RAPId.isPresent()) {
-        sb.append(RAPId.get()).append("-");
-      }
-      if (cmSeries.isPresent()) {
-        sb.append(cmSeries.get()).append("-");
-      }
       if (cropModel.isPresent()) {
         sb.append(cropModel.get());
       } else {
@@ -169,7 +182,7 @@ public class ACMOFile extends CropModelFile {
     boolean fmtErrors = false;
     clearErrorReport();
     if (this.header.isPresent()) {
-      int headerLength = this.header.get().length;
+      //int headerLength = this.header.get().length;
       List<Integer> dateColumns = getDateColumns();
       try (CSVReader reader = new CSVReader(new FileReader(this.path.toFile()))) {
         Optional<String[]> nextLine = Optional.ofNullable(reader.readNext());
@@ -201,9 +214,11 @@ public class ACMOFile extends CropModelFile {
             if (token == '*') {
               dataLine++;
               StringBuilder errorLines = new StringBuilder("Invalid date for ");
-              StringBuilder errorVals  = new StringBuilder("(");
+              StringBuilder errorVals = new StringBuilder("(");
               StringBuilder warningLines = new StringBuilder("Suspected crop failure on ");
               int errorsFound = 0;
+              String crid = line[getColumn("crid_text")];
+              crops.add(crid);
               for (Integer idx : dateColumns) {
                 try {
                   if (!line[idx].equals("")) {
@@ -232,7 +247,7 @@ public class ACMOFile extends CropModelFile {
                 fmtErrors = true;
                 errorLines.deleteCharAt(errorLines.lastIndexOf(","));
                 int evLast = errorVals.lastIndexOf(",");
-                errorVals.replace(evLast, evLast+1, ")");
+                errorVals.replace(evLast, evLast + 1, ")");
                 if (errorsFound > 1) {
                   errorLines.insert(12, 's');
                   errorLines.insert(errorLines.lastIndexOf(",") + 1, " and");
@@ -332,136 +347,148 @@ public class ACMOFile extends CropModelFile {
   }
 
   private void checkCMSeries() {
-
     try (CSVReader reader = new CSVReader(new FileReader(this.path.toFile()))) {
-      boolean fenDiff = false;
-      boolean cmFound = false;
-
       int exnameCol = getColumn("exname");
       int climIdCol = getColumn("clim_id");
       int manIdCol = getColumn("man_id");
       int fenTotCol = getColumn("fen_tot");
+      int rapIdCol = getColumn("rap_id");
 
-      String cm = null;
-      String exnameBase = null;
-      String fenTotCheck = null;
-      String manIdCheck = null;
-      String batchMatch = "\\w+_\\d+_b\\d+__\\d+";
-      String[] captureColumns = {"reg_id", "crid_text", "rap_id", "crop_model"};
-      Optional<String[]> nextLine = Optional.ofNullable(reader.readNext());
+      boolean fenDiff = false;
 
+      Optional<String> exnameBase = Optional.empty();
+      Optional<String> fenTotStart = Optional.empty();
+      Optional<String> manIdStart = Optional.empty();
+      //Optional<String> cm = Optional.empty();
+
+      Optional<String[]> nextLine;
       if (exnameCol != -1) {
-        long dataStartLine = -1L;
         long lineNum = 0L;
-        while (nextLine.isPresent()) {
+        long dataStartLine = -1L;
+        while (!cmSeries.isPresent() && (nextLine = Optional.ofNullable(reader.readNext())).isPresent()) {
           lineNum++;
           String[] line = nextLine.get();
           if (!line[0].equals("")) {
             char token = (line[0].startsWith("\"")) ? line[0].charAt(1) : line[0].charAt(0);
             if (token == '*') {
-
               if (dataStartLine == -1L) {
                 dataStartLine = lineNum;
+                extractMetadata(line);
               }
 
               String exname = line[exnameCol];
               String climId = line[climIdCol];
+              String rapId = line[rapIdCol];
               String manId = line[manIdCol];
               String fenTot = line[fenTotCol];
 
-              if (!regionId.isPresent()) {
-                if (climId != null && !climId.equals("")) {
-                  climateId = Optional.of(climId);
-                }
-
-                for (String capture : captureColumns) {
-                  String val = line[getColumn(capture)];
-                  switch (capture) {
-                    case "reg_id":
-                      if (val != null && !val.equals("")) {
-                        regionId = Optional.of(val);
+              if (!exnameBase.isPresent()) {
+                Matcher batchMatcher = Constants.BATCH_REGEX.matcher(exname);
+                if (batchMatcher.matches()) {
+                  exnameBase = Optional.of(batchMatcher.group(1));
+                } else {
+                  Matcher seasonalMatcher = Constants.SEASONAL_REGEX.matcher(exname);
+                  if (seasonalMatcher.matches()) {
+                    exnameBase = Optional.of(seasonalMatcher.group(1));
+                    // According to the AgMIP Protocols, using X as the last
+                    // indicator means no scenarios.
+                    if (climId.endsWith("X")) {
+                      if (rapId.equals("")) {
+                        cmSeries = Optional.of("CM1");
+                      } else {
+                        cmSeries = Optional.of("CM4");
                       }
-                      break;
-                    case "crid_text":
-                      if (val != null && !val.equals("")) {
-                        crops.add(val);
+                    } else if (rapId.equals("")) {
+                      if (manId.equals("")) {
+                        cmSeries = Optional.of("CM2");
+                      } else {
+                        cmSeries = Optional.of("CM3");
                       }
-                      break;
-                    case "rap_id":
-                      if (val != null && !val.equals("")) {
-                        RAPId = Optional.of(val);
-                      }
-                      break;
-                    case "crop_model":
-                      if (val != null && !val.equals("")) {
-                        cropModel = Optional.of(val);
-                      }
-                      break;
-                  }
-                }
-              }
-
-              if (manIdCheck == null) {
-                manIdCheck = manId;
-              }
-
-              if (fenTotCheck == null) {
-                fenTotCheck = fenTot;
-              }
-
-              if (!exname.matches(batchMatch)) {
-                if (exname.contains("__")) {
-                  if (climateId.isPresent() && climateId.get().startsWith("0X")) {
-                    cm = "CM1";
-                  } else if (null == manId || manId.equals("")) {
-                    cm = "CM2";
-                  } else {
-                    try {
-                      Integer manIdInt = Integer.parseInt(manId);
-                      cm = "CM" + (manIdInt + 2);
-                    } catch (NumberFormatException ex) {
-                      cm = "CM-" + manId;
+                    } else if (manId.equals("")) {
+                      cmSeries = Optional.of("CM5");
+                    } else {
+                      cmSeries = Optional.of("CM6");
                     }
+                  } else {
+                    // This should be CM0 at this point.
+                    cmSeries = Optional.of("CM0");
                   }
-                  cmFound = true;
-                  break;
-                }
-
-                if (exnameBase == null) {
-                  exnameBase = exname;
-                }
-
-                if (!exnameBase.equals(exname)) {
-                  if (dataStartLine == (lineNum - 1)) {
-                    // Technically should be CM0
-                    cm = "CM0";
-                  }
-                  cmFound = true;
-                  break;
                 }
               }
 
-              if (!fenDiff && !fenTot.equals(fenTotCheck)) {
+              if (!manIdStart.isPresent()) {
+                manIdStart = blankOrNull(manId);
+              }
+
+              if (!fenTotStart.isPresent()) {
+                fenTotStart = blankOrNull(fenTot);
+              } else if (!fenTotStart.get().equals(fenTot)) {
                 fenDiff = true;
               }
-              
             }
           }
-          nextLine = Optional.ofNullable(reader.readNext());
         }
-        if (!cmFound) {
+        if (!cmSeries.isPresent()) {
           if (fenDiff) {
-            cm = "CTWN";
+            cmSeries = Optional.of("CTWN");
           } else {
-            cm = "C3MP";
+            cmSeries = Optional.of("C3MP");
           }
         }
-        cmSeries = Optional.ofNullable(cm);
-      } else {
-        cmSeries = Optional.empty();
       }
     } catch (IOException ex) {
-      cmSeries = Optional.empty();
+      LOG.log(Level.SEVERE, null, ex);
+    }
+  }
+
+  /**
+   * Extract the ACMO meta data from the first line in the dataset.
+   *
+   * @param line
+   */
+  private void extractMetadata(String[] line) {
+    //"reg_id", "clim_id", "man_id", "crid_text", "rap_id", "crop_model"
+    for (String colId : CAPTURE_COLUMNS) {
+      Optional<String> val = blankOrNull(line[getColumn(colId)]);
+      switch (colId) {
+        case "reg_id":
+          regionId = val;
+          break;
+        case "clim_id":
+          climateId = val;
+          break;
+        case "man_id":
+          managementId = val;
+          break;
+        case "rap_id":
+          RAPId = val;
+          break;
+        case "crop_model":
+          cropModel = val;
+          break;
+      }
+    }
+  }
+
+  private Optional<String> blankOrNull(String s) {
+    if (s != null && !s.equals("")) {
+      return Optional.of(s);
+    } else {
+      return Optional.empty();
+    }
+  }
+
+  public static String extractExname(String exname) {
+    Matcher batchMatcher = Constants.BATCH_REGEX.matcher(exname);
+    if (batchMatcher.matches()) {
+      return batchMatcher.group(1);
+    } else {
+      Matcher seasonalMatcher = Constants.SEASONAL_REGEX.matcher(exname);
+      if (seasonalMatcher.matches()) {
+        return seasonalMatcher.group(1);
+      } else {
+        return exname;
+      }
     }
   }
 }

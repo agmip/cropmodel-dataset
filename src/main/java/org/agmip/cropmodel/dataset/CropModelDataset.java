@@ -321,7 +321,16 @@ public class CropModelDataset {
         if (f.isValid()) {
           // Get the final path
           Path dest = root.resolve("ACMOS");
-          dest = dest.resolve((f.getCMSeries().isPresent() ? f.getCMSeries().get() : "UNKNOWN"));
+          if (f.getCMSeries().isPresent()) {
+            String s = f.getCMSeries().get();
+            if (s.equals("C3MP") || s.equals("CTWN")) {
+              dest = dest.resolve("SENSITIVITY");
+            } else {
+              dest = dest.resolve(s);
+            }
+          } else {
+            dest.resolve("UNKNOWN");
+          }
           Path fname = f.getCleanFilename().getFileName();
           dest = dest.resolve(fname.toString());
           Path parent = dest.getParent();
