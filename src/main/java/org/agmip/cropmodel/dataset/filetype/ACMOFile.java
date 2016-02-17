@@ -126,14 +126,15 @@ public class ACMOFile extends CropModelFile {
 
   public Path getCleanFilename(boolean generate) {
     if (generate || this.filename == null) {
+      boolean sensitivty = false;
+      if (cmSeries.isPresent()
+          && (cmSeries.get().equals("C3MP") || cmSeries.get().equals("CTWN"))) {
+        sensitivty = true;
+      }
       StringBuilder sb = new StringBuilder(100);
       StringBuilder cropString = new StringBuilder();
       sb.append("ACMO-");
-      if (regionId.isPresent()) {
-        sb.append(regionId.get());
-      } else {
-        sb.append("REGION");
-      }
+      sb.append(regionId.orElse("REGION"));
       sb.append("-");
       for (String crop : this.crops) {
         cropString.append(crop.toUpperCase().replace(" ", ""));
@@ -146,15 +147,8 @@ public class ACMOFile extends CropModelFile {
         sb.append(cropString.toString());
       }
       sb.append("-");
-      if (cmSeries.isPresent()
-          && (cmSeries.get().equals("C3MP") || cmSeries.get().equals("CTWN"))) {
-        sb.append(cmSeries.get());
-      } else {
-        if (climateId.isPresent()) {
-          sb.append(climateId.get());
-        } else {
-          sb.append("CLIMATE");
-        }
+      if (! sensitivty) {
+        sb.append(climateId.orElse("CLIMATE"));
         sb.append("-");
         if (RAPId.isPresent()) {
           sb.append("R");
@@ -167,11 +161,9 @@ public class ACMOFile extends CropModelFile {
         }
       }
       sb.append("-");
-      if (cropModel.isPresent()) {
-        sb.append(cropModel.get());
-      } else {
-        sb.append("MODEL");
-      }
+      sb.append(cmSeries.orElse(""));
+      sb.append("-");
+      sb.append(cropModel.orElse("MODEL"));
       sb.append(".csv");
       this.filename = this.path.resolveSibling(sb.toString());
     }
