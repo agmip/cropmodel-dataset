@@ -40,7 +40,7 @@ public abstract class CropModelFile {
 
   abstract public CropModelFileType getFileType();
 
-  public String getName() {
+  public String getFileName() {
     return this.path.getFileName().toString();
   }
 

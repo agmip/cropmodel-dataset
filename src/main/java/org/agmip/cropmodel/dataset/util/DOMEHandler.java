@@ -36,11 +36,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.zip.GZIPInputStream;
 
-import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonToken;
-
-import org.agmip.cropmodel.dataset.util.JsonFactoryProvider;
 
 /**
  * This class should eventually be replaced by DOME 2.0 library functions.

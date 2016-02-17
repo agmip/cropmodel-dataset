@@ -62,9 +62,7 @@ public class LinkChecker {
     int[] searchResults = new int[searchColumns.length];
     boolean headerFound = false;
     boolean problemFound = false;
-
     try (CSVReader reader = new CSVReader(new FileReader(path.toFile()))) {
-      out.println("Checking file: " + path.toString());
       Optional<String[]> line = Optional.ofNullable(reader.readNext());
       List<String> errors = new ArrayList<>();
       long lineNum = 0L;
@@ -72,7 +70,8 @@ public class LinkChecker {
         lineNum++;
         String[] l = line.get();
         if (l[0].equals("")) {
-          err.println("Invalid ACMO entry on line " + lineNum);
+          problemFound = true;
+          errors.add("         Invalid ACMO entry on line " + lineNum);
           line = Optional.ofNullable(reader.readNext());
           continue;
         }
@@ -184,8 +183,9 @@ public class LinkChecker {
         line = Optional.ofNullable(reader.readNext());
       }
       if (problemFound) {
+        err.println("[FAILED] " + path.toString());
         errors.stream().forEach((error) -> {
-          err.println(error);
+          err.println("         "+error);
         });
       }
     } catch (IOException ex) {
