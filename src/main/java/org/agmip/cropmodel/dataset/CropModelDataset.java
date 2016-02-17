@@ -125,6 +125,10 @@ public class CropModelDataset {
     }
     return msg;
   }
+  
+  public List<ModelSpecificFile> getModelSpecificFiles() {
+    return modelFiles;
+  }
 
   public String datasetStatisticsHTML() {
     StringBuilder sb = new StringBuilder();
