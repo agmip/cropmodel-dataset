@@ -28,7 +28,6 @@
  */
 package org.agmip.cropmodel.dataset.util;
 
-import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import java.io.FileInputStream;
@@ -55,137 +54,173 @@ import org.apache.tika.Tika;
  */
 public class AgMIPFileTypeIdentifier {
 
-    private static final JsonFactory JSON_FACTORY = new JsonFactory();
-    private static final Logger LOG = Logger.getLogger(AgMIPFileTypeIdentifier.class.getName());
-    private AgMIPFileTypeIdentifier() {
-    }
-    
-    public static CropModelFile identify(Path file) {
-        Tika tika = new Tika();
-        CropModelFile identity = null;
-        Optional<String> contentType;
-        LOG.log(Level.INFO, "Identifying file: {0}", file.toString());
-        try {
-            LOG.log(Level.INFO, "Found type: {0}", tika.detect(file));
-            contentType = Optional.of(tika.detect(file));
-        } catch (IOException ex) {
-            LOG.log(Level.INFO, null, ex);
-            contentType = Optional.empty();
-        }
-        if (contentType.isPresent()) {
-            switch (contentType.get().toLowerCase(Locale.ROOT)) {
-                case "application/gzip":
-                    identity = identifyGZIPFile(file);
-                    break;
-                case "text/plain":
-                case "text/csv":
-                    identity = identifyTextFile(file);
-                    break;
-                default:
-                    identity = new SupplementalFile(file);
-                    break;
-            }
-        }
-        return identity;
-    }
-    
-    private static CropModelFile identifyGZIPFile(Path file) {
-        CropModelFile identity = null;
-        InputStream data = null;
-        JsonParser p = null;
-        try {
-            data = new GZIPInputStream(new FileInputStream(file.toFile()));
-            p = JSON_FACTORY.createParser(data);
-            JsonToken first = p.nextToken();
-            p.nextToken();
-            if (first.equals(JsonToken.START_OBJECT)) {
-                switch (p.getCurrentName()) {
-                    case "experiments":
-                    case "weathers":
-                    case "soils":
-                        identity = new ACEFile(file);
-                        break;
-                    default:
-                        p.nextToken();
-                        p.nextToken();
-                        switch (p.getCurrentName()) {
-                            case "generators":
-                            case "rules":
-                            case "info":
-                                identity = new DOMEFile(file);
-                                break;
-                            default:
-                                identity = new SupplementalFile(file);
-                                break;
-                        }
-                }
-            } else {
-                identity = new SupplementalFile(file);
-            }
-        } catch (IOException ex) {
-            LOG.log(Level.SEVERE, null, ex);
+  private static final Logger LOG = Logger.getLogger(AgMIPFileTypeIdentifier.class.getName());
+  private static final String[] VALID_EXTENSIONS = new String[]{".aceb", ".dome", ".alnk", ".csv"};
+  private static final String[] VALID_ACMO_COLUMNS = new String[]{"EXNAME","FIELD_OVERLAY","SEASONAL_STRATEGY"};
+  private AgMIPFileTypeIdentifier() {}
+
+  public static CropModelFile identify(Path file) {
+    // Check the paths first
+    String fileName = file.getFileName().toString();
+    CropModelFile identity = null;
+    if (endsWithFromArray(fileName, VALID_EXTENSIONS)) {
+      Tika tika = new Tika();
+      Optional<String> contentType;
+      try {
+        contentType = Optional.of(tika.detect(file));
+      } catch (IOException ex) {
+        LOG.log(Level.INFO, null, ex);
+        contentType = Optional.empty();
+      }
+      if (contentType.isPresent()) {
+        switch (contentType.get().toLowerCase(Locale.ROOT)) {
+          case "application/gzip":
+            identity = identifyGZIPFile(file);
+            break;
+          case "text/plain":
+          case "text/csv":
+            identity = identifyTextFile(file);
+            break;
+          default:
             identity = new SupplementalFile(file);
-        } finally {
-            try {
-                if (p != null) {
-                    p.close();
-                }
-                if (data != null) {
-                    data.close();
-                }
-            } catch (IOException ex) {
-                LOG.log(Level.SEVERE, null, ex);
-            }
+            break;
         }
-        return identity;
+      }
+    } else {
+      identity = new SupplementalFile(file);
     }
-    
-    private static CropModelFile identifyTextFile(Path file) {
-        CropModelFile identity = null;
-        try {
-            try (Scanner scanner = new Scanner(file)) {
-                boolean identified = false;
-                while (!identified) {
-                    if (scanner.hasNextLine()) {
-                        String line = scanner.nextLine();
-                        if (line.length() > 2) {
-                            char identifier = (line.startsWith("\"")) ? line.charAt(1) : line.charAt(0);
-                            switch (identifier) {
-                                case '!':
-                                case '*':
-                                    // Don't know anything at this point.
-                                    break;
-                                case '#':
-                                    // This is a header which will help us identify the filetype
-                                    if (line.length() > 15 && line.substring(0, 15).contains("SUITE_ID")) {
-                                        if (line.contains("CROP_MODEL")) {
-                                            identity = new ACMOFile(file);
-                                            identified = true;
-                                        } else {
-                                            identity = new LinkageFile(file);
-                                            identified = true;
-                                        }
-                                    } else {
-                                        identity = new SupplementalFile(file);
-                                        identified = true;
-                                    }
-                                    break;
-                                default:
-                                    identity = new SupplementalFile(file);
-                                    identified = true;
-                            }
-                        }
+    return identity;
+  }
+
+  private static CropModelFile identifyGZIPFile(Path file) {
+    CropModelFile identity = null;
+    InputStream data = null;
+    JsonParser p = null;
+    try {
+      data = new GZIPInputStream(new FileInputStream(file.toFile()));
+      p = JsonFactoryProvider.getFactory().createParser(data);
+      JsonToken first = p.nextToken();
+      p.nextToken();
+      if (first.equals(JsonToken.START_OBJECT)) {
+        if (p != null) {
+          switch (p.getCurrentName()) {
+            case "experiments":
+            case "weathers":
+            case "soils":
+              identity = new ACEFile(file);
+              break;
+            default:
+              p.nextToken();
+              p.nextToken();
+              switch (p.getCurrentName()) {
+                case "generators":
+                case "rules":
+                case "info":
+                  identity = new DOMEFile(file);
+                  break;
+                default:
+                  identity = new SupplementalFile(file);
+                  break;
+              }
+          }
+        } else {
+          LOG.log(Level.SEVERE, "NPE Issue with file: {0}", file.toString());
+          identity = new SupplementalFile(file);
+        }
+      } else {
+        identity = new SupplementalFile(file);
+      }
+    } catch (Exception ex) {
+      LOG.log(Level.SEVERE, null, ex);
+      identity = new SupplementalFile(file);
+    } finally {
+      try {
+        if (p != null) {
+          p.close();
+        }
+        if (data != null) {
+          data.close();
+        }
+      } catch (IOException ex) {
+        LOG.log(Level.SEVERE, null, ex);
+      }
+    }
+    return identity;
+  }
+
+  private static CropModelFile identifyTextFile(Path file) {
+    CropModelFile identity = null;
+    try {
+      try (Scanner scanner = new Scanner(file)) {
+        boolean identified = false;
+        while (!identified) {
+          if (scanner.hasNextLine()) {
+            String line = scanner.nextLine();
+            if (line.length() > 2) {
+              char identifier = (line.startsWith("\"")) ? line.charAt(1) : line.charAt(0);
+              switch (identifier) {
+                case '!':
+                case '*':
+                  // Don't know anything at this point.
+                  break;
+                case '#':
+                  // This is a header which will help us identify the filetype
+                  // This is hacky because a lot of our files contain EXNAME
+                  if (containsAllFromArray(line, VALID_ACMO_COLUMNS)) {
+                    if (line.contains("CROP_MODEL")) {
+                      identity = new ACMOFile(file);
+                      identified = true;
                     } else {
+                      if (line.length() < 5) {
+                        identity = new LinkageFile(file);
+                        identified = true;
+                      } else {
                         identity = new SupplementalFile(file);
                         identified = true;
+                      }
                     }
-                }
+                  } else {
+                    identity = new SupplementalFile(file);
+                    identified = true;
+                  }
+                  break;
+                default:
+                  identity = new SupplementalFile(file);
+                  identified = true;
+              }
             }
-        } catch (IOException ex) {
-            LOG.log(Level.SEVERE, null, ex);
+          } else {
             identity = new SupplementalFile(file);
+            identified = true;
+          }
         }
-        LOG.log(Level.INFO, "Found a suitable identity for text file.");
-        return identity;
+      }
+    } catch (IOException ex) {
+      LOG.log(Level.SEVERE, null, ex);
+      identity = new SupplementalFile(file);
     }
+    if (identity == null) {
+      identity = new SupplementalFile(file);
+    }
+    return identity;
+  }
+
+  public static boolean endsWithFromArray(String source, String[] needles) {
+    String haystack = source.toLowerCase();
+    for (String needle : needles) {
+      if (haystack.endsWith(needle)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public static boolean containsAllFromArray(String source, String[] needles) {
+    for(String needle: needles) {
+      if (! source.contains(needle)) {
+        return false;
+      }
+    }
+    return true;
+  }
 }

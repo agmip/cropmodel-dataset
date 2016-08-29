@@ -24,6 +24,20 @@
             <artifactId>tika-core</artifactId>
             <version>1.11</version>
         </dependency>
+        <dependency>
+            <groupId>org.agmip.ace</groupId>
+            <artifactId>ace-core</artifactId>
+            <version>2.0.1-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+          <groupId>joda-time</groupId>
+          <artifactId>joda-time</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>junit</groupId>
+          <artifactId>junit</artifactId>
+          <scope>test</scope>
+        </dependency>
     </dependencies>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

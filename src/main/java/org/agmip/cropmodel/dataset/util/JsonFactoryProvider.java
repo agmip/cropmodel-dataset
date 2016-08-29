@@ -26,23 +26,19 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-package org.agmip.cropmodel.dataset.filetype;
+package org.agmip.cropmodel.dataset.util;
 
-import java.nio.file.Path;
+import com.fasterxml.jackson.core.JsonFactory;
 
 /**
  *
  * @author Christopher Villalobos <cvillalobos@ufl.edu>
  */
-public class LinkageFile extends CropModelFile {
-
-  public LinkageFile(Path path) {
-    super(path);
-  }
-
-  @Override
-  public CropModelFileType getFileType() {
-    return CropModelFileType.LINKAGE;
-  }
-
+public class JsonFactoryProvider {
+    private final static JsonFactory FACTORY = new JsonFactory();
+    private JsonFactoryProvider(){}
+    
+    public static JsonFactory getFactory() {
+        return FACTORY;
+    }
 }
