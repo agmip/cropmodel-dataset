@@ -64,30 +64,30 @@ public class AgMIPFileTypeIdentifier {
     String fileName = file.getFileName().toString();
     CropModelFile identity = null;
     if (endsWithFromArray(fileName, VALID_EXTENSIONS)) {
-    Tika tika = new Tika();
-    Optional<String> contentType;
-    try {
-      contentType = Optional.of(tika.detect(file));
-    } catch (IOException ex) {
-      LOG.log(Level.INFO, null, ex);
-      contentType = Optional.empty();
-    }
-    if (contentType.isPresent()) {
-      switch (contentType.get().toLowerCase(Locale.ROOT)) {
-        case "application/gzip":
-          identity = identifyGZIPFile(file);
-          break;
-        case "text/plain":
-        case "text/csv":
-          identity = identifyTextFile(file);
-          break;
-        default:
-          identity = new SupplementalFile(file);
-          break;
+      Tika tika = new Tika();
+      Optional<String> contentType;
+      try {
+        contentType = Optional.of(tika.detect(file));
+      } catch (IOException ex) {
+        LOG.log(Level.INFO, null, ex);
+        contentType = Optional.empty();
       }
-    }
+      if (contentType.isPresent()) {
+        switch (contentType.get().toLowerCase(Locale.ROOT)) {
+          case "application/gzip":
+            identity = identifyGZIPFile(file);
+            break;
+          case "text/plain":
+          case "text/csv":
+            identity = identifyTextFile(file);
+            break;
+          default:
+            identity = new SupplementalFile(file);
+            break;
+        }
+      }
     } else {
-        identity = new SupplementalFile(file);
+      identity = new SupplementalFile(file);
     }
     return identity;
   }
@@ -102,30 +102,35 @@ public class AgMIPFileTypeIdentifier {
       JsonToken first = p.nextToken();
       p.nextToken();
       if (first.equals(JsonToken.START_OBJECT)) {
-        switch (p.getCurrentName()) {
-          case "experiments":
-          case "weathers":
-          case "soils":
-            identity = new ACEFile(file);
-            break;
-          default:
-            p.nextToken();
-            p.nextToken();
-            switch (p.getCurrentName()) {
-              case "generators":
-              case "rules":
-              case "info":
-                identity = new DOMEFile(file);
-                break;
-              default:
-                identity = new SupplementalFile(file);
-                break;
-            }
+        if (p != null) {
+          switch (p.getCurrentName()) {
+            case "experiments":
+            case "weathers":
+            case "soils":
+              identity = new ACEFile(file);
+              break;
+            default:
+              p.nextToken();
+              p.nextToken();
+              switch (p.getCurrentName()) {
+                case "generators":
+                case "rules":
+                case "info":
+                  identity = new DOMEFile(file);
+                  break;
+                default:
+                  identity = new SupplementalFile(file);
+                  break;
+              }
+          }
+        } else {
+          LOG.log(Level.SEVERE, "NPE Issue with file: {0}", file.toString());
+          identity = new SupplementalFile(file);
         }
       } else {
         identity = new SupplementalFile(file);
       }
-    } catch (IOException ex) {
+    } catch (Exception ex) {
       LOG.log(Level.SEVERE, null, ex);
       identity = new SupplementalFile(file);
     } finally {
@@ -167,8 +172,8 @@ public class AgMIPFileTypeIdentifier {
                       identified = true;
                     } else {
                       if (line.length() < 5) {
-                      identity = new LinkageFile(file);
-                      identified = true;
+                        identity = new LinkageFile(file);
+                        identified = true;
                       } else {
                         identity = new SupplementalFile(file);
                         identified = true;
@@ -209,7 +214,7 @@ public class AgMIPFileTypeIdentifier {
     }
     return false;
   }
-  
+
   public static boolean containsAllFromArray(String source, String[] needles) {
     for(String needle: needles) {
       if (! source.contains(needle)) {

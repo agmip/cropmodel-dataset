@@ -39,8 +39,6 @@ import java.util.Set;
 import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import org.agmip.cropmodel.dataset.Constants;
-import static org.agmip.cropmodel.dataset.Constants.BATCH_REGEX;
 import org.agmip.cropmodel.dataset.filetype.ACMOFile;
 
 /**
@@ -132,6 +130,7 @@ public class LinkChecker {
                     break;
                   case "EXNAME":
                     exname = ACMOFile.extractExname(res);
+                    res = exname;
                     if (!exnames.contains(res)) {
                       sb.append("EXNAME not found: ");
                       pfound = true;
@@ -187,6 +186,7 @@ public class LinkChecker {
         errors.stream().forEach((error) -> {
           err.println("         "+error);
         });
+        err.println();
       }
     } catch (IOException ex) {
       LOG.log(Level.SEVERE, null, ex);

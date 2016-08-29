@@ -48,7 +48,8 @@ import org.joda.time.LocalDate;
 public class ACMOFile extends CropModelFile {
 
   private static final Logger LOG = Logger.getLogger(ACMOFile.class.getName());
-  private static final String[] CAPTURE_COLUMNS = {"reg_id", "clim_id", "man_id", "crid_text", "rap_id", "crop_model"};
+  private static final String[] CAPTURE_COLUMNS = {"reg_id", "clim_id", "man_id", "rap_id", "crop_model"};
+  private static final String[] MULTI_VALUE_COLUMNS = {"crid_text", "wst_id"};
   private StringBuilder errors = new StringBuilder(1024);
   private StringBuilder warnings = new StringBuilder(1024);
   private Optional<String[]> header;
@@ -58,6 +59,7 @@ public class ACMOFile extends CropModelFile {
   private Optional<String> RAPId;
   private Optional<String> managementId;
   private Optional<String> cropModel;
+  private final Set<String> weatherIds;
   private final Set<String> crops;
   private Path filename = null;
 
@@ -69,9 +71,11 @@ public class ACMOFile extends CropModelFile {
     RAPId = Optional.empty();
     managementId = Optional.empty();
     cropModel = Optional.empty();
+    weatherIds = new HashSet<>();
     crops = new HashSet<>();
     loadHeader();
     if (this.header.isPresent()) {
+      loadMultiValues();
       checkCMSeries();
     }
   }
@@ -101,10 +105,10 @@ public class ACMOFile extends CropModelFile {
   public void clearErrorReport() {
     this.errors = new StringBuilder(1024);
     if (null == this.header || !this.header.isPresent()) {
-      this.errors.append("No header row found.\n");
+      this.errors.append("         No header row found.\n");
     }
     if (null == this.cmSeries || !this.cmSeries.isPresent()) {
-      this.errors.append("Unable to determine the Crop Model Excersize for this ACMO.\n");
+      this.errors.append("         Unable to determine the Crop Model Excersize for this ACMO.\n");
     }
   }
 
@@ -121,10 +125,14 @@ public class ACMOFile extends CropModelFile {
   }
 
   public Path getCleanFilename() {
-    return getCleanFilename(false);
+    return getCleanFilename(false, false);
   }
 
-  public Path getCleanFilename(boolean generate) {
+  public Path getCleanFilename(boolean fixShadow) {
+    return getCleanFilename(fixShadow, false);
+  }
+
+  public Path getCleanFilename(boolean fixShadow, boolean generate) {
     if (generate || this.filename == null) {
       boolean sensitivty = false;
       if (cmSeries.isPresent()
@@ -133,6 +141,7 @@ public class ACMOFile extends CropModelFile {
       }
       StringBuilder sb = new StringBuilder(100);
       StringBuilder cropString = new StringBuilder();
+      StringBuilder wstString = new StringBuilder();
       sb.append("ACMO-");
       sb.append(regionId.orElse("REGION"));
       sb.append("-");
@@ -147,7 +156,19 @@ public class ACMOFile extends CropModelFile {
         sb.append(cropString.toString());
       }
       sb.append("-");
-      if (! sensitivty) {
+      //Weather station ID goes here
+      for (String wst : weatherIds) {
+        wstString.append(wst);
+        wstString.append("_");
+      }
+      if (wstString.length() == 0) {
+        sb.append("STATION");
+      } else {
+        wstString.delete(wstString.lastIndexOf("_"), wstString.length());
+        sb.append(wstString.toString());
+      }
+      sb.append("-");
+      if (!sensitivty) {
         sb.append(climateId.orElse("CLIMATE"));
         sb.append("-");
         if (RAPId.isPresent()) {
@@ -205,12 +226,10 @@ public class ACMOFile extends CropModelFile {
             char token = (line[0].startsWith("\"")) ? line[0].charAt(1) : line[0].charAt(0);
             if (token == '*') {
               dataLine++;
-              StringBuilder errorLines = new StringBuilder("Invalid date for ");
+              StringBuilder errorLines = new StringBuilder("         Invalid date for ");
               StringBuilder errorVals = new StringBuilder("(");
-              StringBuilder warningLines = new StringBuilder("Suspected crop failure on ");
+              StringBuilder warningLines = new StringBuilder("          Suspected crop failure on ");
               int errorsFound = 0;
-              String crid = line[getColumn("crid_text")];
-              crops.add(crid);
               for (Integer idx : dateColumns) {
                 try {
                   if (!line[idx].equals("")) {
@@ -241,7 +260,7 @@ public class ACMOFile extends CropModelFile {
                 int evLast = errorVals.lastIndexOf(",");
                 errorVals.replace(evLast, evLast + 1, ")");
                 if (errorsFound > 1) {
-                  errorLines.insert(12, 's');
+                  errorLines.insert(21, 's');
                   errorLines.insert(errorLines.lastIndexOf(",") + 1, " and");
                   if (errorsFound == 2) {
                     errorLines.deleteCharAt(errorLines.lastIndexOf(","));
@@ -265,7 +284,7 @@ public class ACMOFile extends CropModelFile {
         }
         if (dataLine == dateFail) {
           this.clearErrorReport();
-          this.errors.append("Date format incorrect on every data line in this file.");
+          this.errors.append("         Date format incorrect on every data line in this file.");
         }
       } catch (IOException ex) {
         return false;
@@ -304,7 +323,7 @@ public class ACMOFile extends CropModelFile {
         this.header = Optional.empty();
       }
       if (null == this.header) {
-        this.errors.append("No ACMO header found\n");
+        this.errors.append("         No ACMO header found\n");
         this.header = Optional.empty();
       }
     }
@@ -336,6 +355,53 @@ public class ACMOFile extends CropModelFile {
       }
     }
     return -1;
+  }
+
+  private void loadMultiValues() {
+    int mvcLength = MULTI_VALUE_COLUMNS.length;
+    int[] multicols = new int[mvcLength];
+    if (header.isPresent()) {
+      String[] h = header.get();
+      int l = h.length;
+      for (int j = 0; j < mvcLength; j++) {
+        String s = MULTI_VALUE_COLUMNS[j].toUpperCase();
+        for (int i = 0; i < l; i++) {
+          if (h[i].toUpperCase().equals(s)) {
+            multicols[j] = i;
+          }
+        }
+      }
+      try (CSVReader reader = new CSVReader(new FileReader(this.path.toFile()))) {
+        Optional<String[]> nextLine;
+        while ((nextLine = Optional.ofNullable(reader.readNext())).isPresent()) {
+          String line[] = nextLine.get();
+          if (!line[0].equals("")) {
+            char token = (line[0].startsWith("\"")) ? line[0].charAt(1) : line[0].charAt(0);
+            if (token == '*') {
+              for (int i = 0; i < mvcLength; i++) {
+                String val = line[multicols[i]];
+                if (val != null && !val.equals("")) {
+                  switch (MULTI_VALUE_COLUMNS[i]) {
+                    case "crid_text":
+                      if (!crops.contains(val)) {
+                        crops.add(val);
+                      }
+                      break;
+                    case "wst_id":
+                      if (!weatherIds.contains(val)) {
+                        weatherIds.add(val);
+                      }
+                      break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (IOException ex) {
+        LOG.log(Level.SEVERE, null, ex);
+      }
+    }
   }
 
   private void checkCMSeries() {
@@ -382,40 +448,41 @@ public class ACMOFile extends CropModelFile {
                   Matcher seasonalMatcher = Constants.SEASONAL_REGEX.matcher(exname);
                   if (seasonalMatcher.matches()) {
                     exnameBase = Optional.of(seasonalMatcher.group(1));
-                    // According to the AgMIP Protocols, using X as the last
-                    // indicator means no scenarios.
-                    if (climId.endsWith("X")) {
-                      if (rapId.equals("")) {
-                        cmSeries = Optional.of("CM1");
-                      } else {
-                        cmSeries = Optional.of("CM4");
-                      }
-                    } else if (rapId.equals("")) {
-                      if (manId.equals("")) {
-                        cmSeries = Optional.of("CM2");
-                      } else {
-                        cmSeries = Optional.of("CM3");
-                      }
-                    } else if (manId.equals("")) {
-                      cmSeries = Optional.of("CM5");
-                    } else {
-                      cmSeries = Optional.of("CM6");
-                    }
                   } else {
                     // This should be CM0 at this point.
                     cmSeries = Optional.of("CM0");
+                    continue;
                   }
                 }
-              }
+                // According to the AgMIP Protocols, using X as the last
+                // indicator means no scenarios.
+                if (climId.startsWith("0") && climId.endsWith("X")) {
+                  if (rapId.equals("")) {
+                    if (manId.equals("")) {
+                    cmSeries = Optional.of("CM1");
+                    } else {
+                      cmSeries = Optional.of("CM3");
+                    }
+                  } else {
+                    cmSeries = Optional.of("CM4");
+                  }
+                } else if (rapId.equals("")) {
+                    cmSeries = Optional.of("CM2");
+                } else if (manId.equals("")) {
+                  cmSeries = Optional.of("CM5");
+                } else {
+                  cmSeries = Optional.of("CM6");
+                }
 
-              if (!manIdStart.isPresent()) {
-                manIdStart = blankOrNull(manId);
-              }
+                if (!manIdStart.isPresent()) {
+                  manIdStart = blankOrNull(manId);
+                }
 
-              if (!fenTotStart.isPresent()) {
-                fenTotStart = blankOrNull(fenTot);
-              } else if (!fenTotStart.get().equals(fenTot)) {
-                fenDiff = true;
+                if (!fenTotStart.isPresent()) {
+                  fenTotStart = blankOrNull(fenTot);
+                } else if (!fenTotStart.get().equals(fenTot)) {
+                  fenDiff = true;
+                }
               }
             }
           }

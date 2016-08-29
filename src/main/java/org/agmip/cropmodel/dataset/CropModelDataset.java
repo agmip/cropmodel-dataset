@@ -10,8 +10,10 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -21,6 +23,7 @@ import org.agmip.ace.AceSoil;
 import org.agmip.ace.AceWeather;
 import org.agmip.ace.io.AceParser;
 import org.agmip.cropmodel.dataset.filetype.*;
+import org.agmip.cropmodel.dataset.filetype.CropModelFile.CropModelFileType;
 import org.agmip.cropmodel.dataset.util.ACESeamer;
 import org.agmip.cropmodel.dataset.util.AgMIPFileTypeIdentifier;
 import org.agmip.cropmodel.dataset.util.DOMEHandler;
@@ -36,17 +39,27 @@ public class CropModelDataset {
   private final List<LinkageFile> linkageFiles = new ArrayList<>();
   private final List<ModelSpecificFile> modelFiles = new ArrayList<>();
   private final List<SupplementalFile> extraFiles = new ArrayList<>();
+  private final Map<Path, CropModelFileType> ftLookup = new HashMap<>();
   private Path basedir;
+  private boolean datasetValid = false;
 
   private final static Logger LOG = Logger.getLogger(CropModelDataset.class.getName());
 
   public CropModelDataset() {
   }
 
+  public boolean isValid() {
+    return datasetValid;
+  }
+  
   public void identifyDatasetFiles(Path basedir) {
     identifyDatasetFiles(basedir, true);
   }
 
+  public CropModelFileType lookupFileType(Path p) {
+    return ftLookup.get(p);
+  }
+  
   public void identifyDatasetFiles(Path basedir, boolean skipDotFiles) {
     try {
       Files.walkFileTree(basedir, new SimpleFileVisitor<Path>() {
@@ -80,12 +93,15 @@ public class CropModelDataset {
       linkageFiles.clear();
       modelFiles.clear();
       extraFiles.clear();
+      ftLookup.clear();
       identifyDatasetFiles(this.basedir);
     }
   }
 
-  public void addFile(Path file) {
+  public CropModelFileType addFile(Path file) {
+    LOG.log(Level.INFO, "Adding file {0}", file);
     CropModelFile f = AgMIPFileTypeIdentifier.identify(file);
+    CropModelFileType ft = null;
     if (f != null) {
       switch (f.getFileType()) {
         case ACE:
@@ -105,9 +121,13 @@ public class CropModelDataset {
           extraFiles.add((SupplementalFile) f);
           break;
       }
+      ft = f.getFileType();
+      ftLookup.put(file, ft);
+      LOG.log(Level.INFO, "Can return file type as {0}", f.getFileType());
     } else {
       LOG.log(Level.INFO, "Cannot add file: {0}", file.getFileName().toString());
     }
+    return ft;
   }
 
   public String promoteToCultivar(Path f) {
@@ -118,6 +138,7 @@ public class CropModelDataset {
       msg = modelFile.getFileName() + " has been marked as a cultivar file.";
       extraFiles.remove(file);
       modelFiles.add(modelFile);
+      ftLookup.put(f, CropModelFileType.MODEL_SPECIFIC);
     } else if (modelFiles.contains(modelFile)) {
       msg = modelFile.getFileName() + " has already been marked as a cultivar file.";
     } else {
@@ -125,7 +146,7 @@ public class CropModelDataset {
     }
     return msg;
   }
-  
+
   public List<ModelSpecificFile> getModelSpecificFiles() {
     return modelFiles;
   }
@@ -172,19 +193,22 @@ public class CropModelDataset {
     Set<String> dids = new HashSet<>(200);
     Set<String> domeNames = new HashSet<>(200);
     Set<String> acmoNames = new HashSet<>(200);
-    Set<String> dupAcmoFiles = new HashSet<>(200);
+    Map<String, String> acmoRename = new HashMap<>();
+    Map<String, StringBuilder> acmoDups = new HashMap<>();
     Set<String> exnames = new HashSet<>(150);
     Set<String> wstclim = new HashSet<>(100);
     Set<String> soilids = new HashSet<>(25);
 
-    
     boolean acebsValid = true;
     if (acePresent) {
-      out.println("Extracting ACE IDs for checking...");
-      for(ACEFile ace : aceFiles) {
+      out.println("\n------------------------------------------------------------------------");
+      out.println("Validating ACEB files");
+      out.println("------------------------------------------------------------------------\n");
+      out.println("Checking " + aceFiles.size() + " ACEB files...\n");
+      for (ACEFile ace : aceFiles) {
         try {
           AceDataset ds = AceParser.parseACEB(ace.getPath().toFile());
-          for(AceExperiment exp : ds.getExperiments()) {
+          for (AceExperiment exp : ds.getExperiments()) {
             try {
               if (!eids.contains(exp.getId())) {
                 eids.add(exp.getId());
@@ -200,7 +224,7 @@ public class CropModelDataset {
               LOG.log(Level.WARNING, null, ex);
             }
           }
-          
+
           for (AceWeather wth : ds.getWeathers()) {
             try {
               if (!wids.contains(wth.getId())) {
@@ -218,7 +242,7 @@ public class CropModelDataset {
               LOG.log(Level.WARNING, null, ex);
             }
           }
-          for(AceSoil soil : ds.getSoils()) {
+          for (AceSoil soil : ds.getSoils()) {
             try {
               if (!sids.contains(soil.getId())) {
                 sids.add(soil.getId());
@@ -241,7 +265,7 @@ public class CropModelDataset {
           LOG.log(Level.WARNING, "Failure to parse {0}: {1}", new Object[]{ace.getPath().toString(), ex});
         }
       }
-      
+
       out.println("Found " + eids.size() + " unique experiment IDs");
       out.println("Found " + sids.size() + " unique soil IDs");
       out.println("Found " + wids.size() + " unique weather IDs");
@@ -249,10 +273,14 @@ public class CropModelDataset {
       out.println("Found " + soilids.size() + " unique SOIL_IDs");
       out.println("Found " + wstclim.size() + " unique WST_ID and CLIM_ID combinations");
     }
-    
+
     boolean domesValid = true;
     if (domePresent) {
       // Next we need to get the DOME IDs
+      out.println("\n------------------------------------------------------------------------");
+      out.println("Validating DOME files");
+      out.println("------------------------------------------------------------------------\n");
+      out.println("Checking " + domeFiles.size() + " DOME files...\n");
       domeFiles.stream().forEach((path) -> {
         dids.addAll(DOMEHandler.getDomeIds(path.getPath()));
         domeNames.addAll(DOMEHandler.getDomeNames(path.getPath()));
@@ -261,7 +289,7 @@ public class CropModelDataset {
       out.println("Found " + domeNames.size() + " unique DOME Names");
       if (dids.size() != domeNames.size()) {
         err.println("[FAILED] More than one DOME share the same name with different values.");
-        err.println("         Please check the DOME metadata and make each unique using DESCRIPTION");
+        err.println("         Please check the DOME metadata. Make each unique by using the DESCRIPTION field.");
         domesValid = false;
       }
     }
@@ -269,40 +297,62 @@ public class CropModelDataset {
     boolean acmosValid = true;
     boolean acmoShadow = false;
     if (acmoPresent) {
-      out.println("Verifying ACMO data structures...");
-      boolean allValid = true;
+      out.println("\n------------------------------------------------------------------------");
+      out.println("Verifying ACMO files");
+      out.println("------------------------------------------------------------------------\n");
+      out.println("Checking " + acmoFiles.size() + " ACMO files...");
       for (ACMOFile acmo : acmoFiles) {
         String fname = acmo.getCleanFilename().getFileName().toString();
+        LOG.log(Level.INFO, "Renaming {0} to {1}",
+            new Object[]{acmo.getPath().toString(),
+              acmo.getCleanFilename().getFileName().toString()});
         if (acmoNames.contains(fname)) {
-          dupAcmoFiles.add(acmo.getPath().toString());
+          StringBuilder sb;
+          if (!acmoDups.containsKey(fname)) {
+            sb = new StringBuilder();
+            sb.append("               ");
+            sb.append(acmoRename.get(fname));
+            sb.append("\n");
+          } else {
+            sb = acmoDups.get(fname);
+          }
+          sb.append("               ");
+          sb.append(acmo.getPath().toString());
+          sb.append("\n");
+          acmoDups.put(fname, sb);
+        } else {
+          acmoNames.add(fname);
+          acmoRename.put(fname, acmo.getPath().toString());
         }
-        acmoNames.add(fname);
+
         boolean isValid = acmo.isValid();
         if (!isValid) {
-          allValid = false;
+          acmosValid = false;
           err.println("[FAILED] " + acmo.getPath().toString());
-          err.println("------------");
-          err.println("Error Report");
-          err.println("------------");
           err.println(acmo.getErrorReport());
         }
         if (!acmo.getWarnings().equals("")) {
           out.println("[WARNING] " + acmo.getPath().toString());
-          out.println(acmo.getWarnings());
+          out.println("          Suspected multiple crop failures because of blank output lines in ACMO.\n");
+          //out.println(acmo.getWarnings());
         }
       }
-      if (! dupAcmoFiles.isEmpty()) {
+      out.println("\n------------------------------------------------------------------------");
+      out.println("Checking ACMO renaming conflict");
+      out.println("------------------------------------------------------------------------\n");
+      out.println("NOTE: This product renames ACMO files to match the AgMIP protocols.\n");
+      if (!acmoDups.isEmpty()) {
         acmoShadow = true;
         err.println("[FAILED] More than one ACMO file will share the same name.");
         err.println("         Please check the MAN_ID and RAP_ID columns in the ACMO files.");
         err.println("         MAN_ID should be blank unless using an adaptation.");
         err.println("         RAP_ID should be blank unless working with RAPs.");
-        err.println("         The following files will overwrite existing files:");
-        for(String dup : dupAcmoFiles) {
-          err.println("             " + dup);
+
+        for (Map.Entry<String, StringBuilder> dup : acmoDups.entrySet()) {
+          err.println("             The following files will be written as " + dup.getKey().toString());
+          err.println(dup.getValue());
         }
       }
-      acmosValid = allValid && (!acmoShadow);
     }
 
     //if (linkPresent && !acmoPresent) {
@@ -310,16 +360,21 @@ public class CropModelDataset {
     //}
     boolean acmoLinkageTest = true;
     if (acmoPresent && acePresent) {
-      out.println("Verifying all linkages available.");
+      out.println("\n------------------------------------------------------------------------");
+      out.println("Verifying linkages between ACEB, DOME and ACMO files");
+      out.println("------------------------------------------------------------------------\n");
+      out.println("Checking linkages in " + acmoFiles.size() + " ACMO files...\n");
       boolean acmoLinkageAll = true;
       for (ACMOFile path : acmoFiles) {
         String cm = path.getCMSeries().orElse("");
         if (cm.equals("C3MP") || cm.equals("CTWN")) {
-          out.println("- Skipping senstivity test linkage checking");
+          out.println("- Skipping senstivity analysis linkage checking on " + path.getPath().toString() + "\n");
+        } else if (!path.isValid()) {
+          err.println("- Skipping invalid ACMO file " + path.getPath().toString() + "\n");
         } else {
           boolean thisLinkage = LinkChecker.checkLinkedData(path.getPath(), out, err, eids, sids, wids, exnames, soilids, wstclim);
           if (!thisLinkage) {
-            acmoLinkageAll = false; 
+            acmoLinkageAll = false;
           }
         }
       }
@@ -327,11 +382,17 @@ public class CropModelDataset {
         acmoLinkageTest = false;
       }
     }
-    
+
     out.println("------------------------------------------------------------------------");
     out.println("Summary Report:");
-    return domesValid && acmosValid && acmoLinkageTest;
-    
+    out.println("ACEB Validation......................... " + (acebsValid ? "SUCCESS" : "FAILED"));
+    out.println("DOME Validation......................... " + (domesValid ? "SUCCESS" : "FAILED"));
+    out.println("ACMO Validation......................... " + (acmosValid ? "SUCCESS" : "FAILED"));
+    out.println("ACMO Renaming........................... " + (!acmoShadow ? "SUCCESS" : "FAILED"));
+    out.println("Linkage Validation...................... " + (acmoLinkageTest ? "SUCCESS" : "FAILED"));
+    datasetValid = acebsValid && domesValid && acmosValid && !acmoShadow && acmoLinkageTest;
+    return datasetValid;
+
   }
 
   public void packageDataset(Path zipFile) {
@@ -381,8 +442,37 @@ public class CropModelDataset {
           LOG.log(Level.WARNING, "File {0} is invalid.", f.toString());
         }
       }
+
+      for (ModelSpecificFile f : modelFiles) {
+        Path dest = getUniqueName(root, f.getPath());
+        Files.copy(f.getPath(), dest, StandardCopyOption.REPLACE_EXISTING);
+      }
     } catch (IOException ex) {
       LOG.log(Level.SEVERE, null, ex);
     }
+  }
+
+  private Path getUniqueName(Path root, Path file) {
+    String fileName = file.getFileName().toString();
+    Path dest = root.resolve(fileName);
+    if (Files.exists(dest)) {
+      String baseFileName;
+      String fileNameExt;
+      int baseIndex = fileName.indexOf(".");
+      if (baseIndex == -1) {
+        baseFileName = fileName;
+        fileNameExt = "";
+      } else {
+        baseFileName = fileName.substring(0, baseIndex);
+        fileNameExt = fileName.substring(baseIndex);
+      }
+      int i=0;
+      while(Files.exists(dest)) {
+        i++;
+        String newFileName = baseFileName + "_" + i + fileNameExt;
+        dest = root.resolve(newFileName);
+      }
+    }
+    return dest;
   }
 }
